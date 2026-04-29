@@ -114,7 +114,6 @@ export function DellGrill({ position = [0, 0, 0] }: DellGrillProps) {
     return mesh;
   }, [hexGeo, grillMat, gridPositions]);
 
-  // ── Logo texture ──────────────────────────────────────────────────────────
   const logoTex = useMemo(() => {
     const cvs = document.createElement('canvas');
     cvs.width  = 1024;
@@ -122,52 +121,45 @@ export function DellGrill({ position = [0, 0, 0] }: DellGrillProps) {
     const ctx  = cvs.getContext('2d')!;
     ctx.clearRect(0, 0, cvs.width, cvs.height);
 
-    // Subtle glow background so text pops against the dark grill
-    const grad = ctx.createRadialGradient(
-      cvs.width / 2, cvs.height / 2, 0,
-      cvs.width / 2, cvs.height / 2, cvs.width / 2,
-    );
-    grad.addColorStop(0,   'rgba(200,200,220,0.10)');
-    grad.addColorStop(1,   'rgba(0,0,0,0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, cvs.width, cvs.height);
-
-    const FONT = 'bold 128px "Arial Narrow", Arial, sans-serif';
-    ctx.font         = FONT;
+    const FONT_SIZE = 150;
+    ctx.font         = `900 ${FONT_SIZE}px "Arial Narrow", Arial, sans-serif`;
     ctx.textBaseline = 'middle';
-    ctx.fillStyle    = '#dddddd';
-    ctx.textAlign    = 'left';
+    ctx.fillStyle    = '#ffffff';
+    ctx.shadowColor  = 'rgba(0, 0, 0, 0.55)';
+    ctx.shadowBlur   = 8;
 
-    const DW   = ctx.measureText('D').width;
-    const EW   = ctx.measureText('E').width;
-    const LLW  = ctx.measureText('LL').width;
-    const spW  = ctx.measureText(' ').width;
-    const EMCW = ctx.measureText('EMC').width;
-
-    const totalW = DW + EW + LLW + spW + EMCW;
-    let cx = (cvs.width - totalW) / 2;
     const cy = cvs.height / 2;
+    const measure = (s: string) => ctx.measureText(s).width;
+    const dW   = measure('D');
+    const eW   = measure('E');
+    const llW  = measure('LL');
+    const gap  = FONT_SIZE * 0.20;
+    const emcW = measure('EMC');
+    const totalW = dW + eW + llW + gap + emcW;
+    let cx = (cvs.width - totalW) / 2;
 
+    ctx.textAlign = 'left';
     ctx.fillText('D', cx, cy);
-    cx += DW;
+    cx += dW;
 
     ctx.save();
-    ctx.translate(cx + EW / 2, cy);
-    ctx.rotate(-40 * Math.PI / 180);
+    ctx.translate(cx + eW / 2, cy);
+    ctx.rotate(-45 * Math.PI / 180);
     ctx.textAlign = 'center';
     ctx.fillText('E', 0, 0);
     ctx.restore();
-    cx += EW;
+    cx += eW;
 
     ctx.textAlign = 'left';
     ctx.fillText('LL', cx, cy);
-    cx += LLW + spW;
-
-    ctx.fillStyle = '#aaaaaa';
+    cx += llW + gap;
     ctx.fillText('EMC', cx, cy);
 
     const tex = new THREE.CanvasTexture(cvs);
     tex.anisotropy = 16;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.premultiplyAlpha = true;
+    tex.needsUpdate = true;
     return tex;
   }, []);
 
@@ -227,16 +219,16 @@ export function DellGrill({ position = [0, 0, 0] }: DellGrillProps) {
       </mesh>
 
       {/* ── Dell EMC logo ────────────────────────────────────────────────── */}
-      <mesh position={[0.12, 0, DEPTH + 0.02]}>
-        <planeGeometry args={[5.2, 1.30]} />
-        <meshStandardMaterial
+      <mesh position={[0.12, 0, DEPTH + 0.32]} renderOrder={20}>
+        <planeGeometry args={[3.0, 0.75]} />
+        <meshBasicMaterial
           map={logoTex}
-          emissiveMap={logoTex}
-          emissive="#ffffff"
-          emissiveIntensity={0.55}
           transparent
           opacity={1.0}
+          depthTest={false}
           depthWrite={false}
+          toneMapped={false}
+          premultipliedAlpha
         />
       </mesh>
 

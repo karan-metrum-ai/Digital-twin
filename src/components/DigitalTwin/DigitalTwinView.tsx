@@ -8,10 +8,88 @@
  * - Click handling for device selection + info card overlay
  */
 
-import { useState, useMemo, Suspense } from 'react';
+import { useEffect, useRef, useState, useMemo, Suspense } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera, Environment } from '@react-three/drei';
 import * as THREE from 'three';
+
+const HOME_CAMERA_POSITION = new THREE.Vector3(-10.8, 1.15, 0);
+const HOME_CAMERA_TARGET = new THREE.Vector3(-3.8, 1.05, 0);
+const HOME_CAMERA_FOV = 55;
+
+function getRackFocusView(rack: Rack3D | null) {
+  if (!rack) {
+    return {
+      position: HOME_CAMERA_POSITION,
+      target: HOME_CAMERA_TARGET,
+      fov: HOME_CAMERA_FOV,
+    };
+  }
+
+  const yaw = rack.rotation?.[1] ?? 0;
+  const rackCenter = new THREE.Vector3(
+    rack.position[0],
+    rack.position[1] + 0.08,
+    rack.position[2]
+  );
+  const rackLocalCenter = new THREE.Vector3(0.29, 0, 0.18).applyAxisAngle(
+    new THREE.Vector3(0, 1, 0),
+    yaw
+  );
+  const frontDirection = new THREE.Vector3(0, 0, 1)
+    .applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw)
+    .normalize();
+  const target = rackCenter.clone().add(rackLocalCenter);
+  const position = target
+    .clone()
+    .add(frontDirection.multiplyScalar(3.35))
+    .add(new THREE.Vector3(0, 0.78, 0));
+
+  return { position, target, fov: 48 };
+}
+
+function RackCameraFocus({ rack }: { rack: Rack3D | null }) {
+  const { camera, controls } = useThree() as unknown as {
+    camera: THREE.PerspectiveCamera;
+    controls: { target: THREE.Vector3; update?: () => void } | null;
+  };
+  const isAnimating = useRef(true);
+
+  const focusView = useMemo(() => getRackFocusView(rack), [rack]);
+
+  useEffect(() => {
+    isAnimating.current = true;
+  }, [focusView]);
+
+  useFrame((_, delta) => {
+    if (!isAnimating.current) return;
+
+    const ease = 1 - Math.exp(-delta * 4);
+
+    camera.position.lerp(focusView.position, ease);
+    camera.fov = THREE.MathUtils.lerp(camera.fov, focusView.fov, ease);
+    camera.updateProjectionMatrix();
+
+    if (controls?.target) {
+      controls.target.lerp(focusView.target, ease);
+      controls.update?.();
+    }
+
+    const targetDistance = controls?.target
+      ? controls.target.distanceTo(focusView.target)
+      : 0;
+    const isSettled =
+      camera.position.distanceTo(focusView.position) < 0.025 &&
+      targetDistance < 0.025 &&
+      Math.abs(camera.fov - focusView.fov) < 0.15;
+
+    if (isSettled) {
+      isAnimating.current = false;
+    }
+  });
+
+  return null;
+}
 
 /**
  * Clamps the orbit camera + target so the user can never leave the room.
@@ -68,8 +146,18 @@ export default function DigitalTwinView() {
     new Set()
   );
   const [selectedRackId, setSelectedRackId] = useState<string | null>(null);
+  const [visibleRackTagIds, setVisibleRackTagIds] = useState<Set<string>>(
+    () => new Set(racks.map((rack) => rack.rack_id))
+  );
   const [activeDevice, setActiveDevice] = useState<DeviceData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const focusedRack = useMemo(
+    () => racks.find((rack) => rack.rack_id === selectedRackId) ?? null,
+    [racks, selectedRackId]
+  );
+  const focusedRackTagsVisible = focusedRack
+    ? visibleRackTagIds.has(focusedRack.rack_id)
+    : false;
 
   // Toggle a device's selection state
   const handleToggleSelection = (deviceId: string, isSelected: boolean) => {
@@ -86,6 +174,9 @@ export default function DigitalTwinView() {
     const rack = racks.find((r) =>
       r.devices.some((d) => d.device_id === device.device_id)
     );
+    if (rack) {
+      setSelectedRackId(rack.rack_id);
+    }
     setActiveDevice({
       device_id: device.device_id,
       hostname: device.hostname,
@@ -118,7 +209,17 @@ export default function DigitalTwinView() {
   };
 
   const handleRackClick = (rackId: string) => {
+    setActiveDevice(null);
     setSelectedRackId((prev) => (prev === rackId ? null : rackId));
+  };
+
+  const handleToggleRackDeviceLabels = (rackId: string) => {
+    setVisibleRackTagIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(rackId)) next.delete(rackId);
+      else next.add(rackId);
+      return next;
+    });
   };
 
   // Aggregate stats for the HUD overlay
@@ -165,7 +266,7 @@ export default function DigitalTwinView() {
       >
         <PerspectiveCamera
           makeDefault
-          position={[-10, 3, 4]}
+          position={HOME_CAMERA_POSITION.toArray()}
           fov={55}
           near={0.1}
           far={200}
@@ -179,11 +280,12 @@ export default function DigitalTwinView() {
           maxDistance={20}
           maxPolarAngle={Math.PI / 2 - 0.05}
           minPolarAngle={Math.PI / 6}
-          target={[2, 0, 0]}
+          target={HOME_CAMERA_TARGET.toArray()}
         />
 
         {/* Keeps the camera and target inside the room walls */}
         <CameraBoundsLimiter />
+        <RackCameraFocus rack={focusedRack} />
 
         {/*
          * Realistic data hall lighting:
@@ -231,9 +333,11 @@ export default function DigitalTwinView() {
               rack={rack}
               selectedDeviceIds={selectedDeviceIds}
               selectedRackId={selectedRackId}
+              showDeviceLabels={visibleRackTagIds.has(rack.rack_id)}
               onRackClick={handleRackClick}
               onDeviceClick={handleDeviceClick}
               onToggleSelection={handleToggleSelection}
+              onToggleRackDeviceLabels={handleToggleRackDeviceLabels}
             />
           ))}
 
@@ -321,11 +425,81 @@ export default function DigitalTwinView() {
             lineHeight: 1.55,
           }}
         >
-          🖱  Drag to orbit · Scroll to zoom
+          Drag to orbit · Scroll to zoom
           <br />
-          🎯  Click a server to inspect
+          Click a server to focus its rack
         </div>
       </div>
+
+      {focusedRack && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 20,
+            right: 20,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            padding: '10px 12px',
+            background: 'rgba(15, 15, 20, 0.86)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: 12,
+            color: '#fff',
+            fontFamily: "'Inter', -apple-system, sans-serif",
+            boxShadow: '0 16px 40px rgba(0, 0, 0, 0.28)',
+          }}
+        >
+          <div>
+            <div
+              style={{
+                fontSize: 10,
+                color: 'rgba(255,255,255,0.48)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                marginBottom: 2,
+              }}
+            >
+              Focused Rack
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 650 }}>
+              {focusedRack.rack_name}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleToggleRackDeviceLabels(focusedRack.rack_id)}
+            style={{
+              border: '1px solid rgba(255,255,255,0.14)',
+              background: 'rgba(255,255,255,0.06)',
+              color: '#fff',
+              borderRadius: 8,
+              padding: '7px 10px',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            {focusedRackTagsVisible ? 'Hide Tags' : 'Show Tags'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedRackId(null)}
+            style={{
+              border: '1px solid rgba(255,255,255,0.14)',
+              background: 'rgba(255,255,255,0.06)',
+              color: '#fff',
+              borderRadius: 8,
+              padding: '7px 10px',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Reset View
+          </button>
+        </div>
+      )}
 
       {/* Device info panel */}
       {activeDevice && (

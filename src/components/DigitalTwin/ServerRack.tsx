@@ -31,9 +31,11 @@ interface ServerRackProps {
     rack: Rack3D;
     selectedDeviceIds: Set<string>;
     selectedRackId: string | null;
+    showDeviceLabels?: boolean;
     onDeviceClick?: (device: Device3D) => void;
     onToggleSelection?: (deviceId: string, isSelected: boolean) => void;
     onRackClick?: (rackId: string) => void;
+    onToggleRackDeviceLabels?: (rackId: string) => void;
     agentActivityInfo?: AgentActivityInfo | null;
 }
 
@@ -41,9 +43,11 @@ export function ServerRack({
     rack,
     selectedDeviceIds,
     selectedRackId,
+    showDeviceLabels = true,
     onDeviceClick,
     onToggleSelection,
     onRackClick,
+    onToggleRackDeviceLabels,
     agentActivityInfo,
 }: ServerRackProps) {
     const isRackSelected = selectedRackId === rack.rack_id;
@@ -310,9 +314,12 @@ export function ServerRack({
                     center
                     distanceFactor={8}
                     zIndexRange={[100, 0]}
-                    style={{ pointerEvents: 'none' }}
                 >
                     <div
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleRackDeviceLabels?.(rack.rack_id);
+                        }}
                         style={{
                             background: '#252528',
                             color: '#fff',
@@ -323,10 +330,11 @@ export function ServerRack({
                             fontFamily: "'JetBrains Mono', monospace",
                             letterSpacing: '0.03em',
                             whiteSpace: 'nowrap',
-                            pointerEvents: 'none',
+                            cursor: 'pointer',
                             border: '1px solid #3f3f46',
                             boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
                         }}
+                        title={showDeviceLabels ? 'Hide server tags' : 'Show server tags'}
                     >
                         {rack.rack_name}
                     </div>
@@ -559,11 +567,11 @@ export function ServerRack({
                     }
                 }
 
-                const slotSpacing = 0.082;
+                const slotSpacing = 0.074;
                 const baseY = -0.76 + firstIndex * slotSpacing;
                 const centerOffset = ((heightU - 1) * slotSpacing) / 2;
                 const yPos = baseY + centerOffset;
-                const meshHeight = 0.058 * heightU;
+                const meshHeight = 0.052 * heightU;
 
                 const isSelected = selectedDeviceIds.has(device.device_id);
                 const chassisMaterial = isSelected
@@ -658,7 +666,7 @@ export function ServerRack({
                         </mesh>
 
                         {/* Device hostname label - clickable when rack is selected */}
-                        {isRackSelected && (
+                        {isRackSelected && showDeviceLabels && (
                             <Html
                                 position={[0, 0, 0.38]}
                                 center

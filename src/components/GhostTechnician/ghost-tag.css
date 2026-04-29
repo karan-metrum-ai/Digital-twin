@@ -1,0 +1,49 @@
+.ghost-tag {
+    pointer-events: none;
+    user-select: none;
+    transform: translate(-50%, -100%);
+    padding: 6px 10px 7px;
+    border-radius: 8px;
+    background: rgba(8, 18, 28, 0.78);
+    border: 1px solid rgba(125, 249, 255, 0.55);
+    box-shadow:
+        0 0 12px rgba(0, 229, 255, 0.35),
+        inset 0 0 10px rgba(0, 229, 255, 0.08);
+    color: #c8fbff;
+    font-family: 'JetBrains Mono', 'Menlo', ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    backdrop-filter: blur(6px);
+}
+
+.ghost-tag__dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #7df9ff;
+    box-shadow: 0 0 8px #7df9ff;
+    margin-right: 6px;
+    vertical-align: middle;
+    animation: ghost-tag-pulse 1.4s ease-in-out infinite;
+}
+
+.ghost-tag__label {
+    vertical-align: middle;
+    font-weight: 600;
+}
+
+.ghost-tag__status {
+    display: block;
+    margin-top: 2px;
+    font-size: 9px;
+    color: rgba(200, 251, 255, 0.6);
+    letter-spacing: 0.08em;
+}
+
+@keyframes ghost-tag-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.7); }
+}

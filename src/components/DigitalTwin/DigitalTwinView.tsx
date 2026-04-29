@@ -8,10 +8,15 @@
  * - Click handling for device selection + info card overlay
  */
 
-import { useState, useMemo, Suspense } from 'react';
+import { useState, useMemo, useEffect, Suspense } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera, Environment } from '@react-three/drei';
 import * as THREE from 'three';
+import { useSceneStore } from './inspector/sceneStore';
+import { CameraController } from './inspector/CameraController';
+import { ExplodedServer } from './inspector/ExplodedServer';
+import { ServerInspectorHUD } from './inspector/ServerInspectorHUD';
+import { FocusTrigger } from './inspector/FocusTrigger';
 
 /**
  * Clamps the orbit camera + target so the user can never leave the room.
@@ -71,6 +76,18 @@ export default function DigitalTwinView() {
   const [activeDevice, setActiveDevice] = useState<DeviceData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const inspectorStage = useSceneStore((s) => s.stage);
+  const requestFocus = useSceneStore((s) => s.requestFocus);
+  const isInspecting = inspectorStage.kind !== 'overview';
+
+  // When the inspector closes, also clear the legacy info card so the user
+  // returns cleanly to the overview without a stale panel popping back in.
+  useEffect(() => {
+    if (inspectorStage.kind === 'overview') {
+      setActiveDevice(null);
+    }
+  }, [inspectorStage.kind]);
+
   // Toggle a device's selection state
   const handleToggleSelection = (deviceId: string, isSelected: boolean) => {
     setSelectedDeviceIds((prev) => {
@@ -81,11 +98,15 @@ export default function DigitalTwinView() {
     });
   };
 
-  // Click handler: open info card for the clicked device
+  // Click handler: open info card for the clicked device AND fire the
+  // exploded-view inspector (zoom + slide + explode + HUD).
   const handleDeviceClick = (device: Device3D) => {
     const rack = racks.find((r) =>
       r.devices.some((d) => d.device_id === device.device_id)
     );
+    if (rack && !isInspecting) {
+      requestFocus(device, rack);
+    }
     setActiveDevice({
       device_id: device.device_id,
       hostname: device.hostname,
@@ -241,13 +262,39 @@ export default function DigitalTwinView() {
           <GhostTechnicians racks={racks} count={3} />
 
           <Environment preset="night" background={false} />
+
+          {/* Exploded server inspector — only renders while inspecting. */}
+          <ExplodedServer />
         </Suspense>
+
+        {/* DOM <-> R3F bridge for click-to-focus + camera state machine. */}
+        <FocusTrigger />
+        <CameraController />
 
         {/* Very light fog far in the distance */}
         <fog attach="fog" args={['#0f1116', 35, 80]} />
       </Canvas>
 
-      {/* HUD — top-left stats panel */}
+      {/* Vignette overlay — darkens the scene around the inspector to draw
+          focus to the exploded server. Pure DOM so it doesn't touch lights. */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          background:
+            'radial-gradient(ellipse at 35% 50%, transparent 0%, transparent 35%, rgba(5, 7, 12, 0.55) 75%, rgba(5, 7, 12, 0.78) 100%)',
+          opacity: isInspecting ? 1 : 0,
+          transition: 'opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1)',
+          zIndex: 5,
+        }}
+      />
+
+      {/* Inspector side panel (HUD) — slides in when focused. */}
+      <ServerInspectorHUD />
+
+      {/* HUD — top-left stats panel. Dims while inspecting a server. */}
       <div
         style={{
           position: 'absolute',
@@ -262,6 +309,9 @@ export default function DigitalTwinView() {
           fontFamily: "'Inter', -apple-system, sans-serif",
           minWidth: 240,
           pointerEvents: 'none',
+          opacity: isInspecting ? 0.35 : 1,
+          transition: 'opacity 0.4s ease',
+          zIndex: 10,
         }}
       >
         <div
@@ -327,8 +377,10 @@ export default function DigitalTwinView() {
         </div>
       </div>
 
-      {/* Device info panel */}
-      {activeDevice && (
+      {/* Device info panel — hidden while the inspector is active to avoid
+          two right-side panels fighting for attention. The inspector HUD
+          covers the same data plus live metrics + sparklines. */}
+      {activeDevice && !isInspecting && (
         <RackInfoCard
           deviceData={activeDevice}
           isSelected={selectedDeviceIds.has(activeDevice.device_id)}

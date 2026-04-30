@@ -17,58 +17,60 @@
  * not a sci-fi nightclub.
  */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { Text } from '@react-three/drei';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 interface DataCenterEnvironmentProps {
     regionName?: string;
 }
+
+const ROOM_WALL_HEIGHT = 3.6; // 4.0 - 0.4 (matches boxGeometry Y in wall panels)
+const TROFFER_MAIN_FRAME = new THREE.BoxGeometry(1.56, 0.01, 0.66);
+const TROFFER_MAIN_DIFF = new THREE.BoxGeometry(1.5, 0.02, 0.6);
+const TROFFER_SLIM_FRAME = new THREE.BoxGeometry(1.06, 0.01, 0.41);
+const TROFFER_SLIM_DIFF = new THREE.BoxGeometry(1.0, 0.02, 0.35);
+const WALL_PANEL_GEO = new THREE.BoxGeometry(2.2, ROOM_WALL_HEIGHT, 0.05);
 
 /* =====================================================================
  * Recessed troffer LED panel — the single most common modern data
  * center ceiling fixture. A flat rectangular emissive panel set into
  * the ceiling tile grid, with a thin metal frame and a soft cone of
  * light below it. NO bevels, no curves, no logos.
+ *
+ * Per-panel point lights are omitted: 20+ real-time lights are very
+ * expensive in the browser. The emissive diffuser still reads as a
+ * bright troffer; the room is lit by the global lights in DigitalTwinView.
  * ===================================================================== */
 function TrofferPanel({
     position,
-    width = 1.2,
-    length = 2.4,
+    variant = 'main',
 }: {
     position: [number, number, number];
-    width?: number;
-    length?: number;
+    /** main: 1.5 x 0.6 m — slim: corridor panels */
+    variant?: 'main' | 'slim';
 }) {
+    const frameGeo = variant === 'main' ? TROFFER_MAIN_FRAME : TROFFER_SLIM_FRAME;
+    const diffGeo = variant === 'main' ? TROFFER_MAIN_DIFF : TROFFER_SLIM_DIFF;
+
     return (
         <group position={position}>
-            {/* Thin metal frame (slightly bigger than the diffuser) */}
-            <mesh position={[0, 0.005, 0]}>
-                <boxGeometry args={[length + 0.06, 0.01, width + 0.06]} />
+            <mesh position={[0, 0.005, 0]} geometry={frameGeo}>
                 <meshStandardMaterial
                     color="#cfd3da"
                     metalness={0.85}
                     roughness={0.35}
                 />
             </mesh>
-            {/* Bright diffuser */}
-            <mesh position={[0, -0.005, 0]}>
-                <boxGeometry args={[length, 0.02, width]} />
+            <mesh position={[0, -0.005, 0]} geometry={diffGeo}>
                 <meshStandardMaterial
                     color="#ffffff"
                     emissive="#ffffff"
-                    emissiveIntensity={4.2}
+                    emissiveIntensity={5.1}
                     toneMapped={false}
                 />
             </mesh>
-            {/* Soft directional light cast downward from each panel */}
-            <pointLight
-                position={[0, -0.4, 0]}
-                intensity={3.2}
-                distance={9}
-                color="#f5faff"
-                decay={1.6}
-            />
         </group>
     );
 }
@@ -110,6 +112,27 @@ function CableTray({
         return arr;
     }, [rungCount]);
 
+    const mergedRungs = useMemo(() => {
+        const m = new THREE.Matrix4();
+        const parts: THREE.BufferGeometry[] = [];
+        for (const x of rungs) {
+            const g = new THREE.BoxGeometry(0.025, 0.025, width);
+            m.makeTranslation(x, 0, 0);
+            g.applyMatrix4(m);
+            parts.push(g);
+        }
+        if (parts.length === 0) return null;
+        const merged = mergeGeometries(parts);
+        for (const p of parts) p.dispose();
+        return merged;
+    }, [rungs, width]);
+
+    useEffect(() => {
+        return () => {
+            mergedRungs?.dispose();
+        };
+    }, [mergedRungs]);
+
     return (
         <group position={position}>
             {/* Two side rails */}
@@ -119,39 +142,34 @@ function CableTray({
             <mesh position={[0, 0, width / 2]} material={railMat}>
                 <boxGeometry args={[length, 0.06, 0.04]} />
             </mesh>
-            {/* Rungs */}
-            {rungs.map((x, i) => (
-                <mesh key={i} position={[x, 0, 0]} material={railMat}>
-                    <boxGeometry args={[0.025, 0.025, width]} />
-                </mesh>
-            ))}
+            {mergedRungs && <mesh geometry={mergedRungs} material={railMat} />}
             {/* Bundled cables resting in the tray (parallel runs along its length) */}
             <mesh
                 position={[0, 0.04, -width * 0.3]}
                 rotation={[0, 0, Math.PI / 2]}
             >
-                <cylinderGeometry args={[0.025, 0.025, length, 8]} />
+                <cylinderGeometry args={[0.025, 0.025, length, 6]} />
                 <meshStandardMaterial color="#1f2530" roughness={0.7} metalness={0.1} />
             </mesh>
             <mesh
                 position={[0, 0.04, -width * 0.05]}
                 rotation={[0, 0, Math.PI / 2]}
             >
-                <cylinderGeometry args={[0.022, 0.022, length, 8]} />
+                <cylinderGeometry args={[0.022, 0.022, length, 6]} />
                 <meshStandardMaterial color="#0d1218" roughness={0.7} metalness={0.1} />
             </mesh>
             <mesh
                 position={[0, 0.04, width * 0.2]}
                 rotation={[0, 0, Math.PI / 2]}
             >
-                <cylinderGeometry args={[0.02, 0.02, length, 8]} />
+                <cylinderGeometry args={[0.02, 0.02, length, 6]} />
                 <meshStandardMaterial color="#2a4666" roughness={0.6} metalness={0.15} />
             </mesh>
             <mesh
                 position={[0, 0.04, width * 0.38]}
                 rotation={[0, 0, Math.PI / 2]}
             >
-                <cylinderGeometry args={[0.018, 0.018, length, 8]} />
+                <cylinderGeometry args={[0.018, 0.018, length, 6]} />
                 <meshStandardMaterial color="#3a4a2a" roughness={0.65} metalness={0.1} />
             </mesh>
             {/* Hanger straps every ~2.5m connecting the tray up to the ceiling */}
@@ -321,19 +339,18 @@ function DellLogo3D({
 
     return (
         <group position={position} rotation={rotation}>
-            <mesh material={material} castShadow>
-                <torusGeometry args={[RING_RADIUS, RING_TUBE, 24, 96]} />
+            <mesh material={material}>
+                <torusGeometry args={[RING_RADIUS, RING_TUBE, 12, 48]} />
             </mesh>
-            <mesh geometry={dGeometry} material={material} position={[xD, 0, 0]} castShadow />
+            <mesh geometry={dGeometry} material={material} position={[xD, 0, 0]} />
             <mesh
                 geometry={eGeometry}
                 material={material}
                 position={[xE, 0, 0]}
                 rotation={[0, 0, (40 * Math.PI) / 180]}
-                castShadow
             />
-            <mesh geometry={lGeometry} material={material} position={[xL1, 0, 0]} castShadow />
-            <mesh geometry={lGeometry} material={material} position={[xL2, 0, 0]} castShadow />
+            <mesh geometry={lGeometry} material={material} position={[xL1, 0, 0]} />
+            <mesh geometry={lGeometry} material={material} position={[xL2, 0, 0]} />
         </group>
     );
 }
@@ -370,7 +387,7 @@ function buildLetterD(width: number, height: number, depth: number): THREE.Extru
         bevelEnabled: true,
         bevelThickness: depth * 0.15,
         bevelSize: depth * 0.1,
-        bevelSegments: 2,
+        bevelSegments: 1,
     });
 }
 
@@ -399,7 +416,7 @@ function buildLetterE(width: number, height: number, depth: number): THREE.Extru
         bevelEnabled: true,
         bevelThickness: depth * 0.15,
         bevelSize: depth * 0.1,
-        bevelSegments: 2,
+        bevelSegments: 1,
     });
 }
 
@@ -422,7 +439,7 @@ function buildLetterL(width: number, height: number, depth: number): THREE.Extru
         bevelEnabled: true,
         bevelThickness: depth * 0.15,
         bevelSize: depth * 0.1,
-        bevelSegments: 2,
+        bevelSegments: 1,
     });
 }
 
@@ -637,8 +654,6 @@ export function DataCenterEnvironment({
                     <TrofferPanel
                         key={`troffer-${z}-${x}`}
                         position={[x, CEILING_Y - 0.005, z]}
-                        width={0.6}
-                        length={1.5}
                     />
                 ))
             )}
@@ -647,8 +662,7 @@ export function DataCenterEnvironment({
                 <TrofferPanel
                     key={`troffer-c-${x}`}
                     position={[x, CEILING_Y - 0.005, 0]}
-                    width={0.35}
-                    length={1.0}
+                    variant="slim"
                 />
             ))}
 
@@ -707,8 +721,8 @@ export function DataCenterEnvironment({
                         FLOOR_Y + ROOM_HEIGHT / 2,
                         -ROOM_WIDTH / 2 + 0.1,
                     ]}
+                    geometry={WALL_PANEL_GEO}
                 >
-                    <boxGeometry args={[2.2, ROOM_HEIGHT - 0.4, 0.05]} />
                     <primitive object={materials.wallPanel} attach="material" />
                 </mesh>
             ))}
@@ -722,8 +736,8 @@ export function DataCenterEnvironment({
                         FLOOR_Y + ROOM_HEIGHT / 2,
                         ROOM_WIDTH / 2 - 0.1,
                     ]}
+                    geometry={WALL_PANEL_GEO}
                 >
-                    <boxGeometry args={[2.2, ROOM_HEIGHT - 0.4, 0.05]} />
                     <primitive object={materials.wallPanel} attach="material" />
                 </mesh>
             ))}

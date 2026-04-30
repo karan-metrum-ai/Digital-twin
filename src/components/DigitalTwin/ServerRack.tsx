@@ -15,6 +15,8 @@ import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 import type { Device3D, Rack3D } from './types';
 import { DellGrill } from './DellGrill';
+import { mergedRackStaticGeo } from './rackMergedStatic';
+import { rackGeo } from './rackSharedGeometries';
 
 // Re-export types for convenience
 export type { Device3D, Rack3D };
@@ -232,80 +234,31 @@ export function ServerRack({
             {/* Rack highlight box - Add click handler */}
             <mesh
                 position={[0.29, 0, 0.15]}
+                geometry={rackGeo.rackHighlight}
                 material={rackHighlightMaterial}
                 onClick={handleRackClick}
                 onPointerOver={() => (document.body.style.cursor = 'pointer')}
                 onPointerOut={() => (document.body.style.cursor = 'default')}
-            >
-                <boxGeometry args={[0.75, 1.95, 1.1]} />
-            </mesh>
+            />
 
-            {/* Rack frame - vertical posts */}
-            <mesh castShadow material={materials.rackFrame}>
-                <boxGeometry args={[0.04, 1.9, 0.04]} />
-            </mesh>
-            <mesh position={[0.58, 0, 0]} castShadow material={materials.rackFrame}>
-                <boxGeometry args={[0.04, 1.9, 0.04]} />
-            </mesh>
-            <mesh position={[0, 0, -0.44]} castShadow material={materials.rackFrame}>
-                <boxGeometry args={[0.04, 1.9, 0.04]} />
-            </mesh>
-            <mesh position={[0.58, 0, -0.44]} castShadow material={materials.rackFrame}>
-                <boxGeometry args={[0.04, 1.9, 0.04]} />
-            </mesh>
-
-            {/* Rack back panel */}
-            <mesh position={[0.29, 0, -0.46]} material={materials.rackBack}>
-                <boxGeometry args={[0.62, 1.85, 0.02]} />
-            </mesh>
-
-            {/* Rack top and bottom */}
-            <mesh position={[0.29, 0.93, -0.22]} castShadow material={materials.rackFrame}>
-                <boxGeometry args={[0.62, 0.04, 0.5]} />
-            </mesh>
-            <mesh position={[0.29, -0.93, -0.22]} castShadow material={materials.rackFrame}>
-                <boxGeometry args={[0.62, 0.04, 0.5]} />
-            </mesh>
-
-            {/* Glass door frame */}
-            <mesh position={[-0.01, 0, 0.48]} material={materials.doorFrame}>
-                <boxGeometry args={[0.03, 1.85, 0.02]} />
-            </mesh>
-            <mesh position={[0.59, 0, 0.48]} material={materials.doorFrame}>
-                <boxGeometry args={[0.03, 1.85, 0.02]} />
-            </mesh>
-            <mesh position={[0.29, 0.91, 0.48]} material={materials.doorFrame}>
-                <boxGeometry args={[0.64, 0.03, 0.02]} />
-            </mesh>
-            <mesh position={[0.29, -0.91, 0.48]} material={materials.doorFrame}>
-                <boxGeometry args={[0.64, 0.03, 0.02]} />
-            </mesh>
-
-            {/* Glass door panel */}
-            <mesh position={[0.29, 0, 0.49]} material={materials.glassDoor}>
-                <boxGeometry args={[0.56, 1.78, 0.01]} />
-            </mesh>
-
-            {/* Vertical LED strips on frame edges - emissive only, no point lights */}
-            <mesh position={[-0.025, 0, 0.02]} material={materials.verticalLEDStrip}>
-                <boxGeometry args={[0.015, 1.75, 0.015]} />
-            </mesh>
-            <mesh position={[0.605, 0, 0.02]} material={materials.verticalLEDStrip}>
-                <boxGeometry args={[0.015, 1.75, 0.015]} />
-            </mesh>
-
-            {/* Top indicator strip (orange/amber like reference) */}
-            <mesh position={[0.29, 0.88, 0.46]} material={materials.topIndicator}>
-                <boxGeometry args={[0.5, 0.025, 0.01]} />
-            </mesh>
-
-            {/* Rails */}
-            <mesh position={[0.05, 0, 0.38]} material={materials.rail}>
-                <boxGeometry args={[0.025, 1.7, 0.04]} />
-            </mesh>
-            <mesh position={[0.53, 0, 0.38]} material={materials.rail}>
-                <boxGeometry args={[0.025, 1.7, 0.04]} />
-            </mesh>
+            {/* Static rack body — merged by material (7 draws vs 18) */}
+            <mesh
+                castShadow
+                geometry={mergedRackStaticGeo.rackFrame}
+                material={materials.rackFrame}
+            />
+            <mesh geometry={mergedRackStaticGeo.rackBack} material={materials.rackBack} />
+            <mesh geometry={mergedRackStaticGeo.doorFrame} material={materials.doorFrame} />
+            <mesh geometry={mergedRackStaticGeo.glassDoor} material={materials.glassDoor} />
+            <mesh
+                geometry={mergedRackStaticGeo.verticalLedStrip}
+                material={materials.verticalLEDStrip}
+            />
+            <mesh
+                geometry={mergedRackStaticGeo.topIndicator}
+                material={materials.topIndicator}
+            />
+            <mesh geometry={mergedRackStaticGeo.rail} material={materials.rail} />
 
             {/* Rack name label - shown when rack is selected */}
             {isRackSelected && (
@@ -594,76 +547,68 @@ export function ServerRack({
                     >
                         <mesh
                             castShadow
+                            geometry={rackGeo.deviceChassis}
                             material={chassisMaterial}
-                        >
-                            <boxGeometry args={[0.52, meshHeight * 1.1, 0.68]} />
-                        </mesh>
+                            scale={[1, meshHeight * 1.1, 1]}
+                        />
 
                         <mesh
                             position={[0, 0, 0.34]}
+                            geometry={rackGeo.deviceBezel}
                             material={materials.serverBezel}
-                        >
-                            <boxGeometry
-                                args={[0.54, meshHeight * 1.15, 0.006]}
-                            />
-                        </mesh>
+                            scale={[1, meshHeight * 1.15, 1]}
+                        />
 
                         {/* Top edge accent line for visual definition */}
                         <mesh
                             position={[0, meshHeight * 0.56, 0.346]}
+                            geometry={rackGeo.deviceEdgeAccent}
                             material={materials.serverEdgeAccent}
-                        >
-                            <boxGeometry args={[0.55, 0.006, 0.01]} />
-                        </mesh>
+                        />
 
                         {/* Bottom edge accent line */}
                         <mesh
                             position={[0, -meshHeight * 0.56, 0.346]}
+                            geometry={rackGeo.deviceEdgeAccent}
                             material={materials.serverEdgeAccent}
-                        >
-                            <boxGeometry args={[0.55, 0.006, 0.01]} />
-                        </mesh>
+                        />
 
                         {/* Status LEDs */}
                         <mesh
                             position={[-0.19, 0, 0.345]}
+                            geometry={rackGeo.ledSquare}
                             material={getLEDMaterial(device, isSelected)}
-                        >
-                            <boxGeometry args={[0.022, 0.022, 0.004]} />
-                        </mesh>
+                        />
                         <mesh
                             position={[-0.155, 0, 0.345]}
+                            geometry={rackGeo.ledSquare}
                             material={
                                 device.status === 'online'
                                     ? materials.yellowLED
                                     : materials.offlineLED
                             }
-                        >
-                            <boxGeometry args={[0.022, 0.022, 0.004]} />
-                        </mesh>
+                        />
 
                         {/* Blue activity LED strip on server face */}
-                        <mesh position={[0.15, 0, 0.348]} material={materials.blueLED}>
-                            <boxGeometry args={[0.12, 0.012, 0.003]} />
-                        </mesh>
+                        <mesh
+                            position={[0.15, 0, 0.348]}
+                            geometry={rackGeo.ledStrip}
+                            material={materials.blueLED}
+                        />
 
                         {/* Handles */}
                         <mesh
                             position={[-0.24, 0, 0.34]}
+                            geometry={rackGeo.handle}
                             material={materials.handle}
-                        >
-                            <boxGeometry
-                                args={[0.022, Math.max(0.035, meshHeight * 0.65), 0.012]}
-                            />
-                        </mesh>
+                            scale={[1, Math.max(0.035, meshHeight * 0.65), 1]}
+                        />
                         <mesh
                             position={[0.24, 0, 0.34]}
+                            geometry={rackGeo.handle}
                             material={materials.handle}
-                        >
-                            <boxGeometry
-                                args={[0.022, Math.max(0.035, meshHeight * 0.65), 0.012]}
-                            />
-                        </mesh>
+                            scale={[1, Math.max(0.035, meshHeight * 0.65), 1]}
+                        />
 
                         {/* Device hostname label - clickable when rack is selected */}
                         {isRackSelected && showDeviceLabels && (

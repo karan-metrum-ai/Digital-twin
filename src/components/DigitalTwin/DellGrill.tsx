@@ -7,6 +7,11 @@
 
 import * as THREE from 'three';
 import { useEffect, useMemo } from 'react';
+import {
+  buildGrillGridPositions,
+  GRILL_HEX_DEPTH,
+  sharedGrillHexGeometry,
+} from './dellGrillShared';
 
 interface DellGrillProps {
   position?: [number, number, number];
@@ -18,72 +23,10 @@ export function DellGrill({ position = [0, 0, 0] }: DellGrillProps) {
   const PH   = 3.0;
   const PD   = 0.44;
   const EDGE = 0.12;
+  const DEPTH = GRILL_HEX_DEPTH;
 
-  // ── Hex parameters - FLAT-TOP orientation ────────────────────────────────
-  const R_OUT = 0.85;
-  const R_IN  = 0.75;
-  const DEPTH = PD + 0.06;
-
-  const COL_STEP  = 1.5 * R_OUT;
-  const ROW_STEP  = Math.sqrt(3) * R_OUT;
-  const V_OFF     = ROW_STEP / 2;
-
-  const CLIP_HW   = PW / 2;
-  const CLIP_HH   = PH / 2;
-
-  const HEX_HALF_W = R_OUT;
-  const HEX_HALF_H = R_OUT * Math.sqrt(3) / 2;
-
-  // ── Hex ring geometry (flat-top) ─────────────────────────────────────────
-  const hexGeo = useMemo(() => {
-    const shape = new THREE.Shape();
-    const hole  = new THREE.Path();
-
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2;
-      if (i === 0) {
-        shape.moveTo(R_OUT * Math.cos(a), R_OUT * Math.sin(a));
-        hole.moveTo(R_IN  * Math.cos(a), R_IN  * Math.sin(a));
-      } else {
-        shape.lineTo(R_OUT * Math.cos(a), R_OUT * Math.sin(a));
-        hole.lineTo(R_IN  * Math.cos(a), R_IN  * Math.sin(a));
-      }
-    }
-    shape.closePath();
-    hole.closePath();
-    shape.holes.push(hole);
-
-    const geo = new THREE.ExtrudeGeometry(shape, {
-      depth: DEPTH,
-      bevelEnabled: true,
-      bevelThickness: 0.012,
-      bevelSize: 0.012,
-      bevelSegments: 2,
-    });
-    // Centre the geometry on z=0 first, then the wrapper group below
-    // shifts it forward by DEPTH/2 so the front face lands at z=DEPTH
-    // (fully forward) and the back face sits at z=0 (flush with the frame).
-    geo.translate(0, 0, -DEPTH / 2);
-    return geo;
-  }, []);
-
-  // ── Grid positions ────────────────────────────────────────────────────────
-  const gridPositions = useMemo<[number, number][]>(() => {
-    const pts: [number, number][] = [];
-
-    for (let col = -12; col <= 12; col++) {
-      for (let row = -6; row <= 6; row++) {
-        const x = col * COL_STEP;
-        const y = row * ROW_STEP + (Math.abs(col) % 2 === 1 ? V_OFF : 0);
-
-        if (Math.abs(x) + HEX_HALF_W > CLIP_HW) continue;
-        if (Math.abs(y) + HEX_HALF_H > CLIP_HH) continue;
-
-        pts.push([x, y]);
-      }
-    }
-    return pts;
-  }, []);
+  // ── Grid positions (coarser than v1; shared hex ring geometry) ───────────
+  const gridPositions = useMemo(() => buildGrillGridPositions(), []);
 
   // ── Shared materials ──────────────────────────────────────────────────────
   const grillMat = useMemo(() => new THREE.MeshStandardMaterial({
@@ -100,9 +43,13 @@ export function DellGrill({ position = [0, 0, 0] }: DellGrillProps) {
 
   // ── InstancedMesh ─────────────────────────────────────────────────────────
   const hexInst = useMemo(() => {
-    const mesh  = new THREE.InstancedMesh(hexGeo, grillMat, gridPositions.length);
+    const mesh = new THREE.InstancedMesh(
+      sharedGrillHexGeometry,
+      grillMat,
+      gridPositions.length
+    );
     const dummy = new THREE.Object3D();
-    mesh.castShadow    = true;
+    mesh.castShadow = true;
     mesh.receiveShadow = true;
 
     gridPositions.forEach(([x, y], i) => {
@@ -112,7 +59,7 @@ export function DellGrill({ position = [0, 0, 0] }: DellGrillProps) {
     });
     mesh.instanceMatrix.needsUpdate = true;
     return mesh;
-  }, [hexGeo, grillMat, gridPositions]);
+  }, [grillMat, gridPositions]);
 
   const logoTex = useMemo(() => {
     const cvs = document.createElement('canvas');
@@ -163,16 +110,15 @@ export function DellGrill({ position = [0, 0, 0] }: DellGrillProps) {
     return tex;
   }, []);
 
-  // ── Cleanup GPU resources on unmount ─────────────────────────────────────
+  // ── Cleanup GPU resources on unmount (shared hex geometry is module-owned) ─
   useEffect(() => {
     return () => {
-      hexGeo.dispose();
       grillMat.dispose();
       frameMat.dispose();
       logoTex.dispose();
       hexInst.dispose();
     };
-  }, [hexGeo, grillMat, frameMat, logoTex, hexInst]);
+  }, [grillMat, frameMat, logoTex, hexInst]);
 
   return (
     <group position={position}>
@@ -235,7 +181,7 @@ export function DellGrill({ position = [0, 0, 0] }: DellGrillProps) {
       {/* ── Lock cylinder - lower right ───────────────────────────────────── */}
       <group position={[PW / 2 - 0.46, -(PH / 2 - 0.40), DEPTH + 1]}>
         <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.155, 0.155, 0.13, 24]} />
+          <cylinderGeometry args={[0.155, 0.155, 0.13, 12]} />
           <meshStandardMaterial color={0x2c2c32} roughness={0.38} metalness={0.94} />
         </mesh>
         <mesh>

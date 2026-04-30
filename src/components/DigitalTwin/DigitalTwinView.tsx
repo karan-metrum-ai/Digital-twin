@@ -12,8 +12,10 @@ import { useEffect, useRef, useState, useMemo, Suspense } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera, Environment } from '@react-three/drei';
 import * as THREE from 'three';
+import { Perf } from 'r3f-perf';
 
-const HOME_CAMERA_POSITION = new THREE.Vector3(-10.8, 1.15, 0);
+/** Default view: slightly farther from orbit target than before (“pulled back”). */
+const HOME_CAMERA_POSITION = new THREE.Vector3(-12.35, 1.16, 0);
 const HOME_CAMERA_TARGET = new THREE.Vector3(-3.8, 1.05, 0);
 const HOME_CAMERA_FOV = 55;
 
@@ -48,10 +50,15 @@ function getRackFocusView(rack: Rack3D | null) {
   return { position, target, fov: 48 };
 }
 
+type OrbitControlsWithEvents = {
+  addEventListener: (type: string, listener: () => void) => void;
+  removeEventListener: (type: string, listener: () => void) => void;
+} & { target: THREE.Vector3; update?: () => void };
+
 function RackCameraFocus({ rack }: { rack: Rack3D | null }) {
   const { camera, controls } = useThree() as unknown as {
     camera: THREE.PerspectiveCamera;
-    controls: { target: THREE.Vector3; update?: () => void } | null;
+    controls: OrbitControlsWithEvents | null;
   };
   const isAnimating = useRef(true);
 
@@ -60,6 +67,18 @@ function RackCameraFocus({ rack }: { rack: Rack3D | null }) {
   useEffect(() => {
     isAnimating.current = true;
   }, [focusView]);
+
+  // Stop chasing the focus pose as soon as the user orbits / pans / zooms so movement is never blocked.
+  useEffect(() => {
+    if (!controls) return;
+    const stopAnim = () => {
+      isAnimating.current = false;
+    };
+    controls.addEventListener('start', stopAnim);
+    return () => {
+      controls.removeEventListener('start', stopAnim);
+    };
+  }, [controls]);
 
   useFrame((_, delta) => {
     if (!isAnimating.current) return;
@@ -101,15 +120,15 @@ function CameraBoundsLimiter() {
     controls: { target: THREE.Vector3 } | null;
   };
 
-  // Inset the bounds slightly from the actual walls (keep cam off the surface)
+  // Inset the bounds slightly (room ~28×12) — a touch looser so orbit does not feel stuck on edges
   const BOUNDS = useMemo(
     () => ({
-      minX: -13.5,
-      maxX: 13.5,
-      minY: -1.0,
-      maxY: 2.6,
-      minZ: -5.5,
-      maxZ: 5.5,
+      minX: -13.65,
+      maxX: 13.65,
+      minY: -1.1,
+      maxY: 2.75,
+      minZ: -5.65,
+      maxZ: 5.65,
     }),
     []
   );
@@ -133,7 +152,7 @@ import { DataCenterEnvironment } from './DataCenterEnvironment';
 import { NetworkCables } from './NetworkCables';
 import { ServerRack } from './ServerRack';
 import RackInfoCard from './RackInfoCard';
-import { GhostTechnicians } from './GhostTechnicians';
+// import { GhostTechnicians } from './GhostTechnicians';
 import type { Device3D, Rack3D, DeviceData } from './types';
 import { generateRacks } from './mockData';
 
@@ -254,10 +273,11 @@ export default function DigitalTwinView() {
       )}
 
       <Canvas
-        shadows={{ type: THREE.PCFSoftShadowMap }}
-        dpr={[1, 2]}
+        shadows={{ type: THREE.PCFShadowMap, enabled: true }}
+        dpr={[1, 1.5]}
         gl={{
           antialias: true,
+          powerPreference: 'high-performance',
           toneMapping: THREE.ACESFilmicToneMapping,
           toneMappingExposure: 1.05,
         }}
@@ -276,42 +296,41 @@ export default function DigitalTwinView() {
           makeDefault
           enableDamping
           dampingFactor={0.06}
-          minDistance={1.5}
-          maxDistance={20}
-          maxPolarAngle={Math.PI / 2 - 0.05}
-          minPolarAngle={Math.PI / 6}
+          enableRotate
+          enableZoom
+          enablePan
+          minDistance={1.2}
+          maxDistance={26}
+          minPolarAngle={0.1}
+          maxPolarAngle={Math.PI / 2 + 0.15}
+          screenSpacePanning={false}
           target={HOME_CAMERA_TARGET.toArray()}
         />
+
+        {import.meta.env.DEV && (
+          <Perf position="bottom-right" showGraph />
+        )}
 
         {/* Keeps the camera and target inside the room walls */}
         <CameraBoundsLimiter />
         <RackCameraFocus rack={focusedRack} />
 
         {/*
-         * Realistic data hall lighting:
-         * Most of the visible illumination comes from the recessed
-         * troffer panels in DataCenterEnvironment (each panel carries
-         * its own pointLight). Here we just provide a clean fill so
-         * shadow areas don't go pitch black. Avoid the previous
-         * over-bright ambient + 9 corridor point lights stack — that
-         * produced flat, "AI rendered" look with no contrast.
+         * Global lights only: troffers are emissive (no per-panel point lights)
+         * so the hall stays bright without 20+ expensive real-time lights.
          */}
 
-        {/* Modest ambient so deep crevices remain readable */}
-        <ambientLight intensity={0.55} color="#cdd5e0" />
+        <ambientLight intensity={0.62} color="#cdd5e0" />
 
-        {/* Cool/warm hemisphere fill to give the room a believable
-            sky-and-floor tint without flattening it */}
-        <hemisphereLight args={['#9eb6cc', '#171a22', 0.6]} />
+        <hemisphereLight args={['#9eb6cc', '#171a22', 0.68]} />
 
-        {/* Single main top-down directional light for shadow direction */}
         <directionalLight
           position={[0, 14, 2]}
-          intensity={0.7}
+          intensity={0.85}
           color="#ffffff"
           castShadow
-          shadow-mapSize-width={2048}
-          shadow-mapSize-height={2048}
+          shadow-mapSize-width={1024}
+          shadow-mapSize-height={1024}
           shadow-camera-near={1}
           shadow-camera-far={25}
           shadow-camera-left={-15}
@@ -342,9 +361,11 @@ export default function DigitalTwinView() {
           ))}
 
           {/* Holographic technicians patrolling racks */}
+          {/*
           <GhostTechnicians racks={racks} count={3} />
+          */}
 
-          <Environment preset="night" background={false} />
+          <Environment preset="night" background={false} frames={1} />
         </Suspense>
 
         {/* Very light fog far in the distance */}
@@ -425,7 +446,7 @@ export default function DigitalTwinView() {
             lineHeight: 1.55,
           }}
         >
-          Drag to orbit · Scroll to zoom
+          Left drag: rotate · Scroll: zoom · Right drag: pan
           <br />
           Click a server to focus its rack
         </div>

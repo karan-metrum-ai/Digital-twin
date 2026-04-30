@@ -29,6 +29,8 @@ import {
 } from './GhostBody';
 import { GhostTag } from './GhostTag';
 import { GhostTrail } from './GhostTrail';
+import { GhostWisps } from './GhostWisps';
+import { GhostSparkles } from './GhostSparkles';
 import { useOpacityAnimation } from './useArmAnimation';
 import { FLOOR_Y } from './ghostMaterial';
 
@@ -113,16 +115,33 @@ export function GhostTechnician({
     const timerRef = useRef(0);
     const currentRouteRef = useRef<Vec3[]>(route);
 
+    // How long the current walk segment has been running. Used to ease in
+    // the walking speed so the avatar accelerates from a standstill instead
+    // of teleporting to full velocity in one frame.
+    const walkStartTimeRef = useRef(0);
+    // Last frame's planar position — used to compute a true ground speed
+    // (units / sec) that GhostBody reads to drive its stride frequency.
+    const lastPlanarRef = useRef(new THREE.Vector2());
+    // Smoothed ground speed (low-pass filtered to avoid jitter).
+    const smoothedSpeedRef = useRef(0);
+    // Total time since mount — used to drive the spawn drift (avatar
+    // emerges from slightly below the floor and settles into place).
+    const lifeTimeRef = useRef(0);
+    // Total time since despawn began — drives the dissolve drift upward.
+    const despawnTimeRef = useRef(0);
+
     // Initial position
     useEffect(() => {
         if (groupRef.current) {
             groupRef.current.position.set(home[0], home[1], home[2]);
+            lastPlanarRef.current.set(home[0], home[2]);
         }
         const t = setTimeout(() => {
             bodyRef.current?.play('walk');
             setPhase('walking');
             currentRouteRef.current = route;
             segmentRef.current = 0;
+            walkStartTimeRef.current = 0;
         }, Math.max(0, spawnDelay) * 1000);
         return () => clearTimeout(t);
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -152,10 +171,35 @@ export function GhostTechnician({
         const grp = groupRef.current;
         if (!grp) return;
 
-        // Lock Y to the floor — body stays perfectly upright, no bob
-        grp.position.y = FLOOR_Y;
+        // Spawn drift: emerge from ~8 cm below the floor over the first
+        // 1.1 s. Despawn drift: rise gently in the air while fading out.
+        // Both are subtle but make materialization feel deliberate.
+        lifeTimeRef.current += dt;
+        const SPAWN_DRIFT = 0.08;
+        const SPAWN_DUR = 1.1;
+        const spawnK = THREE.MathUtils.clamp(lifeTimeRef.current / SPAWN_DUR, 0, 1);
+        const spawnEase = 1 - (1 - spawnK) * (1 - spawnK); // ease-out quad
+        const spawnOffset = -SPAWN_DRIFT * (1 - spawnEase);
 
-        if (phase !== 'walking' && phase !== 'leaving') return;
+        let despawnOffset = 0;
+        if (phase === 'despawning') {
+            despawnTimeRef.current += dt;
+            const dK = THREE.MathUtils.clamp(despawnTimeRef.current / 0.6, 0, 1);
+            despawnOffset = dK * 0.12; // float up to 12 cm while fading
+        }
+
+        // Lock Y to the floor (plus drift offsets) — body stays upright, no bob
+        grp.position.y = FLOOR_Y + spawnOffset + despawnOffset;
+
+        if (phase !== 'walking' && phase !== 'leaving') {
+            // While idle / fixing / despawning, decay published ground speed
+            // toward zero so GhostBody's stride animation winds down naturally
+            // instead of freezing mid-cycle.
+            smoothedSpeedRef.current *= Math.max(0, 1 - dt * 6);
+            grp.userData.groundSpeed = smoothedSpeedRef.current;
+            lastPlanarRef.current.set(grp.position.x, grp.position.z);
+            return;
+        }
 
         const route = currentRouteRef.current;
         const idx = segmentRef.current;
@@ -177,12 +221,19 @@ export function GhostTechnician({
             grp.rotation.y = cur + delta * Math.min(1, dt * 8);
         }
 
+        // Walk-start ramp: ease the speed in over ~0.55s so the avatar
+        // accelerates smoothly from rest rather than snapping to full
+        // velocity on the first frame.
+        walkStartTimeRef.current += dt;
+        const startK = THREE.MathUtils.clamp(walkStartTimeRef.current / 0.55, 0, 1);
+        const startEase = startK * startK * (3 - 2 * startK); // smoothstep
+
         // Decelerate when approaching the final waypoint of the current
         // route so the ghost "settles" into its stance rather than
         // hard-stopping mid-stride.
         const isFinalLeg = idx === route.length - 1;
         const decel = isFinalLeg ? Math.min(1, dist / 1.2) : 1;
-        const easedSpeed = walkSpeed * (0.5 + 0.5 * decel);
+        const easedSpeed = walkSpeed * (0.5 + 0.5 * decel) * startEase;
         const step = easedSpeed * dt;
         if (dist <= step) {
             grp.position.x = target[0];
@@ -203,6 +254,21 @@ export function GhostTechnician({
             grp.position.x += (dx / dist) * step;
             grp.position.z += (dz / dist) * step;
         }
+
+        // Compute and publish a smoothed ground speed for GhostBody to read.
+        // Using actual displacement (not the desired speed) makes the leg
+        // stride frequency naturally match the body's real ground travel,
+        // killing the foot-slip "ice skating" look entirely.
+        const last = lastPlanarRef.current;
+        const moved = Math.hypot(grp.position.x - last.x, grp.position.z - last.y);
+        const instSpeed = dt > 1e-5 ? moved / dt : 0;
+        // Low-pass filter — fast attack, slower release feels natural.
+        const tau = instSpeed > smoothedSpeedRef.current ? 12 : 6;
+        const a = Math.min(1, dt * tau);
+        smoothedSpeedRef.current += (instSpeed - smoothedSpeedRef.current) * a;
+        grp.userData.groundSpeed = smoothedSpeedRef.current;
+        // Publish yaw delta for head-leads-body lookahead in GhostBody.
+        last.set(grp.position.x, grp.position.z);
     });
 
     // Fix timer -> leave or despawn
@@ -214,12 +280,22 @@ export function GhostTechnician({
                 bodyRef.current?.play('walk');
                 currentRouteRef.current = [...route].reverse().concat([home]);
                 segmentRef.current = 0;
+                walkStartTimeRef.current = 0; // re-arm the start ramp
                 setPhase('leaving');
             } else {
                 setPhase('despawning');
             }
         }
     });
+
+    // Wisp emission window. Spawn wisps puff for the first ~1.2s after
+    // mount, despawn wisps puff during the despawn fade.
+    const wispMode: 'spawn' | 'despawn' | 'idle' =
+        phase === 'despawning'
+            ? 'despawn'
+            : phase === 'spawning' || phase === 'walking'
+                ? 'spawn'
+                : 'idle';
 
     return (
         <group ref={groupRef}>
@@ -228,6 +304,8 @@ export function GhostTechnician({
             </Suspense>
             {showTag && <GhostTag label={label} status={status ?? phaseLabel(phase)} />}
             {showTrail && <GhostTrail sourceRef={groupRef} />}
+            <GhostWisps mode={wispMode} />
+            <GhostSparkles bodyRef={bodyRef} parentRef={groupRef} />
         </group>
     );
 }

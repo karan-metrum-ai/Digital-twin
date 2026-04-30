@@ -54,6 +54,19 @@ export interface GhostBodyRef {
     play: (mode: AnimationMode) => void;
     setFixSide: (side: FixSide) => void;
     getMaterial: () => GhostMaterial;
+    /**
+     * Returns the world position of the currently active working hand
+     * (whichever side is set via `setFixSide`). Returns null if the rig
+     * is not yet ready. Caller may pass an output Vector3 to avoid
+     * allocating per frame.
+     */
+    getWorkingHandWorld: (out?: THREE.Vector3) => THREE.Vector3 | null;
+    /**
+     * Returns the current "press intensity" (0..1) of the fix gesture —
+     * peaks during the 0..1.5s reach + index press window of each cycle.
+     * Other phases of the fix loop return lower values. 0 outside fix.
+     */
+    getFixPressIntensity: () => number;
 }
 
 export const MODEL_PATH = '/model/ghost-technician.glb';
@@ -446,6 +459,27 @@ export const GhostBody = forwardRef<GhostBodyRef, GhostBodyProps>(
             fixOffset: Math.random() * 10,
         });
 
+        // Stride phase is advanced per-frame at a frequency that tracks the
+        // parent group's actual ground speed. This keeps the leg cycle locked
+        // to real translation so feet do not "skate" when the body slows or
+        // accelerates.
+        const stridePhaseRef = useRef(0);
+        // Last frame's parent-group yaw — used to synthesize a head-lead
+        // offset so the head turns slightly ahead of body rotation.
+        const lastParentYawRef = useRef<number | null>(null);
+        const headLeadRef = useRef(0);
+
+        // Latest press intensity from the fix loop (0..1). Read by
+        // GhostSparkles to time particle bursts at the working hand.
+        const pressIntensityRef = useRef(0);
+
+        // Tracks the last animation mode so we can fire a brief
+        // anticipation impulse when transitioning into fix (slight
+        // back-tilt of the spine before the forward lean engages).
+        const lastModeRef = useRef<AnimationMode>(initialMode);
+        // Time remaining (seconds) on the current anticipation impulse.
+        const anticipationRef = useRef(0);
+
         useFrame((_, dt) => {
             material.uniforms.uTime.value += dt;
             tRef.current += dt;
@@ -461,6 +495,51 @@ export const GhostBody = forwardRef<GhostBodyRef, GhostBodyProps>(
             const wWalk = blendRef.current.walk;
             const wFix = blendRef.current.fix;
             const wIdle = blendRef.current.idle;
+
+            // Detect mode transitions to fire a one-shot anticipation
+            // impulse. Right now we only anticipate the walk -> fix beat
+            // (a small backward spine tilt before leaning forward into
+            // the rack). 0.32 s window feels natural.
+            if (lastModeRef.current !== modeRef.current) {
+                if (modeRef.current === 'fix' && lastModeRef.current !== 'fix') {
+                    anticipationRef.current = 0.32;
+                }
+                lastModeRef.current = modeRef.current;
+            }
+            if (anticipationRef.current > 0) {
+                anticipationRef.current = Math.max(0, anticipationRef.current - dt);
+            }
+
+            // Read parent-group telemetry (published by GhostTechnician).
+            const parent = groupRef.current?.parent;
+            const groundSpeed = (parent?.userData?.groundSpeed as number | undefined) ?? 0;
+            // Map ground speed to stride frequency. A 1.3 u/s walk maps to
+            // ~5.4 rad/s (matches the previous hand-tuned constant). When
+            // the body slows the legs slow with it; when it stops, they
+            // settle to the rest pose because phase stops advancing.
+            const NOMINAL_SPEED = 1.3;
+            const NOMINAL_FREQ = 5.4;
+            const speedRatio = THREE.MathUtils.clamp(groundSpeed / NOMINAL_SPEED, 0, 1.4);
+            stridePhaseRef.current += dt * NOMINAL_FREQ * speedRatio;
+            const stride = stridePhaseRef.current;
+
+            // Head-leads-body: detect parent yaw delta and let the head
+            // anticipate the turn by ~150ms.
+            if (parent) {
+                const yaw = parent.rotation.y;
+                if (lastParentYawRef.current === null) {
+                    lastParentYawRef.current = yaw;
+                }
+                let dYaw = yaw - lastParentYawRef.current;
+                while (dYaw > Math.PI) dYaw -= Math.PI * 2;
+                while (dYaw < -Math.PI) dYaw += Math.PI * 2;
+                lastParentYawRef.current = yaw;
+                // Per-frame yaw rate, in rad/s, scaled and clamped.
+                const yawRate = dt > 1e-5 ? dYaw / dt : 0;
+                const targetLead = THREE.MathUtils.clamp(yawRate * 0.15, -0.18, 0.18);
+                // Gentle low-pass so the head doesn't twitch.
+                headLeadRef.current += (targetLead - headLeadRef.current) * Math.min(1, dt * 6);
+            }
 
             const rest = restRef.current;
             const axes = axesRef.current;
@@ -478,6 +557,17 @@ export const GhostBody = forwardRef<GhostBodyRef, GhostBodyProps>(
             const breathAmp = 0.05 * (wIdle * 1.0 + wFix * 0.7 + wWalk * 0.3);
             add(acc, rig.spine1, -breath * breathAmp, 0, 0);
             add(acc, rig.spine2, -breath * breathAmp * 0.6, 0, 0);
+
+            // ============================================================
+            // ANTICIPATION — short backward spine tilt at walk->fix moment
+            // ============================================================
+            if (anticipationRef.current > 0) {
+                // Bell curve over the 0.32 s window — peaks halfway.
+                const u = 1 - anticipationRef.current / 0.32;
+                const bell = Math.sin(u * Math.PI);
+                add(acc, rig.spine, -0.08 * bell, 0, 0);
+                add(acc, rig.spine1, -0.04 * bell, 0, 0);
+            }
 
             // ============================================================
             // LEFT ARM = TABLET HOLDER (always pulled into hold pose)
@@ -517,7 +607,8 @@ export const GhostBody = forwardRef<GhostBodyRef, GhostBodyProps>(
             // WALK — heel-strike, knee bend, hip sway, arm counter-swing
             // ============================================================
             if (wWalk > 0.001) {
-                const stride = t * 5.4;
+                // `stride` is advanced from ground speed above so leg
+                // cadence follows real translation, eliminating foot-slip.
                 const phaseL = Math.sin(stride);
                 const phaseR = -phaseL;
 
@@ -564,13 +655,19 @@ export const GhostBody = forwardRef<GhostBodyRef, GhostBodyProps>(
                 // Left arm dampened (tablet holder) — only ~15% counter-swing
                 add(acc, rig.leftShoulder, phaseR * armAmp * 0.15, 0, 0);
 
-                // Head: stable forward + occasional tablet glance
+                // Head: stable forward + occasional tablet glance + lead on turns
                 const glance = Math.max(
                     0,
                     Math.sin(t * 0.8 + seed.head) - 0.7
                 ) / 0.3;
-                add(acc, rig.head, glance * 0.4 * wWalk, 0, -phaseL * 0.04 * wWalk);
-                add(acc, rig.neck, glance * 0.12 * wWalk, 0, 0);
+                add(
+                    acc,
+                    rig.head,
+                    glance * 0.4 * wWalk,
+                    headLeadRef.current * wWalk,
+                    -phaseL * 0.04 * wWalk
+                );
+                add(acc, rig.neck, glance * 0.12 * wWalk, headLeadRef.current * 0.4 * wWalk, 0);
             }
 
             // ============================================================
@@ -687,6 +784,13 @@ export const GhostBody = forwardRef<GhostBodyRef, GhostBodyProps>(
                     Math.sin(ft * 0.9) * 0.06 * wFix
                 );
                 add(acc, rig.neck, headDown * 0.35 * wFix, 0, 0);
+
+                // Publish press intensity (weighted by fix blend) so the
+                // sparkle particle system can pulse in time with the press.
+                pressIntensityRef.current = pressIndex * wFix;
+            } else {
+                // Outside fix mode — nothing to sparkle.
+                pressIntensityRef.current = 0;
             }
 
             // Apply accumulated angles to all touched bones
@@ -703,6 +807,16 @@ export const GhostBody = forwardRef<GhostBodyRef, GhostBodyProps>(
                     fixSideRef.current = side;
                 },
                 getMaterial: () => material,
+                getWorkingHandWorld: (out) => {
+                    const rig = rigRef.current;
+                    const hand =
+                        fixSideRef.current === 'left' ? rig.leftHand : rig.rightHand;
+                    if (!hand) return null;
+                    const v = out ?? new THREE.Vector3();
+                    hand.getWorldPosition(v);
+                    return v;
+                },
+                getFixPressIntensity: () => pressIntensityRef.current,
             }),
             [material]
         );

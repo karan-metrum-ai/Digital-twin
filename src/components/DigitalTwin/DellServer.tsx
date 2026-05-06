@@ -73,33 +73,53 @@ function getSharedLogoTexture(): THREE.CanvasTexture {
   if (sharedLogoTexture) return sharedLogoTexture;
 
   const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 64;
+  canvas.width = 512;
+  canvas.height = 128;
   const ctx = canvas.getContext('2d')!;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  const fontSize = 36;
-  ctx.font = `900 ${fontSize}px "Arial Narrow", Arial, sans-serif`;
+  const FONT_SIZE = 75;
+  ctx.font = `900 ${FONT_SIZE}px "Arial Narrow", Arial, sans-serif`;
   ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
-  ctx.shadowBlur = 4;
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+  ctx.shadowBlur = 8;
 
   const cy = canvas.height / 2;
-  const dellWidth = ctx.measureText('DELL').width;
-  const emcWidth = ctx.measureText('EMC').width;
-  const gap = fontSize * 0.2;
-  const totalWidth = dellWidth + gap + emcWidth;
-  let cx = (canvas.width - totalWidth) / 2;
+  const measure = (s: string) => ctx.measureText(s).width;
+  const dW = measure('D');
+  const eW = measure('E');
+  const llW = measure('LL');
+  const gap = FONT_SIZE * 0.20;
+  const emcW = measure('EMC');
+  const totalW = dW + eW + llW + gap + emcW;
+  let cx = (canvas.width - totalW) / 2;
 
+  // Draw "D"
   ctx.textAlign = 'left';
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText('DELL', cx, cy);
-  cx += dellWidth + gap;
-  
-  ctx.fillStyle = '#909098';
+  ctx.fillText('D', cx, cy);
+  cx += dW;
+
+  // Draw "E" rotated -45 degrees (Dell logo style)
+  ctx.save();
+  ctx.translate(cx + eW / 2, cy);
+  ctx.rotate(-45 * Math.PI / 180);
+  ctx.textAlign = 'center';
+  ctx.fillText('E', 0, 0);
+  ctx.restore();
+  cx += eW;
+
+  // Draw "LL"
+  ctx.textAlign = 'left';
+  ctx.fillText('LL', cx, cy);
+  cx += llW + gap;
+
+  // Draw "EMC" in slightly darker color
+  ctx.fillStyle = '#a0a0a8';
   ctx.fillText('EMC', cx, cy);
 
   sharedLogoTexture = new THREE.CanvasTexture(canvas);
+  sharedLogoTexture.anisotropy = 16;
   sharedLogoTexture.colorSpace = THREE.SRGBColorSpace;
   sharedLogoTexture.premultiplyAlpha = true;
   sharedLogoTexture.needsUpdate = true;
@@ -277,9 +297,9 @@ export function DellServer({
         <mesh position={[0, (grillHeight / 2 - borderWidth / 2), 0.005]} geometry={borderHorizontalGeo} material={sharedMaterials.frameBorder} />
         <mesh position={[0, -(grillHeight / 2 - borderWidth / 2), 0.005]} geometry={borderHorizontalGeo} material={sharedMaterials.frameBorder} />
 
-        {/* DELL EMC Logo */}
-        <mesh position={[0.003, 0, 0.015]} material={logoMaterial} renderOrder={20}>
-          <planeGeometry args={[0.1, 0.025]} />
+        {/* DELL EMC Logo - same style as DellGrill with rotated E */}
+        <mesh position={[0.005, 0, 0.015]} material={logoMaterial} renderOrder={20}>
+          <planeGeometry args={[0.12, 0.03]} />
         </mesh>
       </group>
 

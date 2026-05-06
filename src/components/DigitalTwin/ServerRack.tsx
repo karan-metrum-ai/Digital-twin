@@ -124,6 +124,51 @@ export function ServerRack({
         return isFirstRack;
     }, [agentActivityInfo, rack.rack_id]);
 
+    // Calculate rack health status based on devices
+    const rackHealthStatus = useMemo(() => {
+        const hasCritical = rack.devices.some(d => d.health_status === 'critical');
+        const hasWarning = rack.devices.some(d => d.health_status === 'warning');
+        if (hasCritical) return 'critical';
+        if (hasWarning) return 'warning';
+        return 'ok';
+    }, [rack.devices]);
+
+    // Pulsing animation for status indicator
+    const statusIndicatorRef = useRef<THREE.Mesh>(null);
+    const pulseTime = useRef(0);
+    
+    useFrame((_s, delta: number) => {
+        if (statusIndicatorRef.current && rackHealthStatus !== 'ok') {
+            pulseTime.current += delta;
+            // Subtle pulse effect
+            const pulse = Math.sin(pulseTime.current * (rackHealthStatus === 'critical' ? 4 : 2)) * 0.5 + 0.5;
+            const material = statusIndicatorRef.current.material as THREE.MeshStandardMaterial;
+            material.emissiveIntensity = 1.5 + pulse * 1.5;
+        }
+    });
+
+    // Status indicator material
+    const statusIndicatorMaterial = useMemo(() => {
+        if (rackHealthStatus === 'critical') {
+            return new THREE.MeshStandardMaterial({
+                color: '#ff2200',
+                emissive: '#ff2200',
+                emissiveIntensity: 2.0,
+            });
+        } else if (rackHealthStatus === 'warning') {
+            return new THREE.MeshStandardMaterial({
+                color: '#ffaa00',
+                emissive: '#ffaa00',
+                emissiveIntensity: 1.5,
+            });
+        }
+        return new THREE.MeshStandardMaterial({
+            color: '#00cc44',
+            emissive: '#00cc44',
+            emissiveIntensity: 0.8,
+        });
+    }, [rackHealthStatus]);
+
     const rackHighlightMaterial = useMemo(() => {
         const color = rack.rack_color || '#00aaff';
         return new THREE.MeshBasicMaterial({
@@ -226,6 +271,24 @@ export function ServerRack({
                 geometry={mergedRackStaticGeo.topPanel}
                 material={sharedRackMaterials.sidePanel}
             />
+
+            {/* === STATUS INDICATOR - Subtle LED on top-front edge === */}
+            {/* Shows rack health: green=ok, amber=warning, red=critical (pulsing) */}
+            <mesh
+                ref={statusIndicatorRef}
+                position={[0.3, 0.97, 0.48]}
+                material={statusIndicatorMaterial}
+            >
+                <boxGeometry args={[0.04, 0.012, 0.012]} />
+            </mesh>
+            
+            {/* Secondary indicator strip - subtle glow bar */}
+            {rackHealthStatus !== 'ok' && (
+                <mesh position={[0.3, 0.965, 0.52]}>
+                    <boxGeometry args={[0.15, 0.006, 0.006]} />
+                    <primitive object={statusIndicatorMaterial} attach="material" />
+                </mesh>
+            )}
 
             {/* Bottom panel - fully encloses bottom */}
             <mesh

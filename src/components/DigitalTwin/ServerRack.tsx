@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 import type { Device3D, Rack3D } from './types';
 import { DellGrill } from './DellGrill';
+import { DellServer } from './DellServer';
 import { mergedRackStaticGeo } from './rackMergedStatic';
 import { rackGeo } from './rackSharedGeometries';
 
@@ -90,69 +91,6 @@ export function ServerRack({
                 metalness: 0.9,
                 roughness: 0.2,
             }),
-            serverChassis: new THREE.MeshStandardMaterial({
-                color: '#404048',
-                metalness: 0.7,
-                roughness: 0.25,
-                emissive: '#151518',
-                emissiveIntensity: 0.15,
-            }),
-            serverChassisSelected: new THREE.MeshStandardMaterial({
-                color: '#00ff88',
-                emissive: '#00ff88',
-                emissiveIntensity: 0.3,
-            }),
-            serverChassisCritical: new THREE.MeshStandardMaterial({
-                color: '#3a2a2a',
-                emissive: '#cc3333',
-                emissiveIntensity: 0.4,
-                roughness: 0.45,
-                metalness: 0.5,
-            }),
-            serverBezel: new THREE.MeshStandardMaterial({
-                color: '#353540',
-                metalness: 0.6,
-                roughness: 0.3,
-                emissive: '#0a0a0f',
-                emissiveIntensity: 0.1,
-            }),
-            handle: new THREE.MeshStandardMaterial({
-                color: '#5a5a5a',
-                metalness: 0.85,
-                roughness: 0.2,
-            }),
-            greenLED: new THREE.MeshStandardMaterial({
-                color: '#00ff44',
-                emissive: '#00ff44',
-                emissiveIntensity: 2.0,
-            }),
-            blueLED: new THREE.MeshStandardMaterial({
-                color: '#00aaff',
-                emissive: '#00aaff',
-                emissiveIntensity: 2.0,
-            }),
-            yellowLED: new THREE.MeshStandardMaterial({
-                color: '#ffaa00',
-                emissive: '#ffaa00',
-                emissiveIntensity: 1.8,
-            }),
-            redLED: new THREE.MeshStandardMaterial({
-                color: '#ff2200',
-                emissive: '#ff2200',
-                emissiveIntensity: 2.0,
-            }),
-            offlineLED: new THREE.MeshStandardMaterial({
-                color: '#222',
-                emissive: '#111',
-                emissiveIntensity: 0.05,
-            }),
-            serverEdgeAccent: new THREE.MeshStandardMaterial({
-                color: '#505058',
-                metalness: 0.9,
-                roughness: 0.1,
-                emissive: '#252528',
-                emissiveIntensity: 0.15,
-            }),
             verticalLEDStrip: new THREE.MeshStandardMaterial({
                 color: '#00d4ff',
                 emissive: '#00d4ff',
@@ -176,16 +114,6 @@ export function ServerRack({
             depthWrite: false,
         });
     }, [rack.rack_color, isRackSelected]);
-
-    const getLEDMaterial = (device: Device3D | null, isSelected: boolean) => {
-        if (isSelected) return materials.greenLED;
-        if (!device) return materials.offlineLED;
-        const health = device.health_status || 'unknown';
-        if (health === 'critical') return materials.redLED;
-        if (health === 'warning') return materials.yellowLED;
-        if (device.status === 'online') return materials.greenLED;
-        return materials.offlineLED;
-    };
 
     // Build slot map for 20U rack. Multi-U devices span multiple slots.
     const U_SLOTS = 20;
@@ -545,69 +473,12 @@ export function ServerRack({
                             (document.body.style.cursor = 'default')
                         }
                     >
-                        <mesh
-                            castShadow
-                            geometry={rackGeo.deviceChassis}
-                            material={chassisMaterial}
-                            scale={[1, meshHeight * 1.1, 1]}
-                        />
-
-                        <mesh
-                            position={[0, 0, 0.34]}
-                            geometry={rackGeo.deviceBezel}
-                            material={materials.serverBezel}
-                            scale={[1, meshHeight * 1.15, 1]}
-                        />
-
-                        {/* Top edge accent line for visual definition */}
-                        <mesh
-                            position={[0, meshHeight * 0.56, 0.346]}
-                            geometry={rackGeo.deviceEdgeAccent}
-                            material={materials.serverEdgeAccent}
-                        />
-
-                        {/* Bottom edge accent line */}
-                        <mesh
-                            position={[0, -meshHeight * 0.56, 0.346]}
-                            geometry={rackGeo.deviceEdgeAccent}
-                            material={materials.serverEdgeAccent}
-                        />
-
-                        {/* Status LEDs */}
-                        <mesh
-                            position={[-0.19, 0, 0.345]}
-                            geometry={rackGeo.ledSquare}
-                            material={getLEDMaterial(device, isSelected)}
-                        />
-                        <mesh
-                            position={[-0.155, 0, 0.345]}
-                            geometry={rackGeo.ledSquare}
-                            material={
-                                device.status === 'online'
-                                    ? materials.yellowLED
-                                    : materials.offlineLED
-                            }
-                        />
-
-                        {/* Blue activity LED strip on server face */}
-                        <mesh
-                            position={[0.15, 0, 0.348]}
-                            geometry={rackGeo.ledStrip}
-                            material={materials.blueLED}
-                        />
-
-                        {/* Handles */}
-                        <mesh
-                            position={[-0.24, 0, 0.34]}
-                            geometry={rackGeo.handle}
-                            material={materials.handle}
-                            scale={[1, Math.max(0.035, meshHeight * 0.65), 1]}
-                        />
-                        <mesh
-                            position={[0.24, 0, 0.34]}
-                            geometry={rackGeo.handle}
-                            material={materials.handle}
-                            scale={[1, Math.max(0.035, meshHeight * 0.65), 1]}
+                        {/* Dell Server - realistic server rendering */}
+                        <DellServer
+                            height={meshHeight}
+                            isSelected={isSelected}
+                            healthStatus={device.health_status}
+                            status={device.status}
                         />
 
                         {/* Device hostname label - clickable when rack is selected */}

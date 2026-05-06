@@ -1,25 +1,25 @@
 /**
  * ServerRack Component
  *
- * Enhanced 3D server rack with:
- * - Multi-U device support (devices spanning multiple slots)
- * - Rack color coding (Row A = cyan, Row B = orange)
- * - Rack selection state with expanded labels
- * - Device selection with visual highlighting
- * - LED status indicators based on health
- * - Hostname labels on selected rack/devices
+ * Dell-style server rack with:
+ * - Black frame with silver edge trim
+ * - Perforated mesh front door (texture-based)
+ * - Interactive door that opens when rack is selected
+ * - Dell logo badge at top
+ * - Door handle
+ * - Side panels
+ * - Optimized geometry (minimal triangles)
  */
 
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
+import { useFrame } from '@react-three/fiber';
 import type { Device3D, Rack3D } from './types';
-import { DellGrill } from './DellGrill';
 import { DellServer } from './DellServer';
 import { mergedRackStaticGeo } from './rackMergedStatic';
-import { rackGeo } from './rackSharedGeometries';
+import { rackGeo, getPerforatedDoorTexture, getDellLogoBadgeTexture } from './rackSharedGeometries';
 
-// Re-export types for convenience
 export type { Device3D, Rack3D };
 
 export interface AgentActivityInfo {
@@ -42,6 +42,55 @@ interface ServerRackProps {
     agentActivityInfo?: AgentActivityInfo | null;
 }
 
+// Shared materials - created once for all rack instances
+const sharedRackMaterials = {
+    frame: new THREE.MeshStandardMaterial({
+        color: '#1a1a1a',
+        metalness: 0.85,
+        roughness: 0.3,
+    }),
+    back: new THREE.MeshStandardMaterial({
+        color: '#0a0a0a',
+        metalness: 0.5,
+        roughness: 0.5,
+    }),
+    doorFrame: new THREE.MeshStandardMaterial({
+        color: '#1a1a1a',
+        metalness: 0.9,
+        roughness: 0.25,
+    }),
+    sidePanel: new THREE.MeshStandardMaterial({
+        color: '#151518',
+        metalness: 0.7,
+        roughness: 0.4,
+    }),
+    edgeTrim: new THREE.MeshStandardMaterial({
+        color: '#808088',
+        metalness: 0.95,
+        roughness: 0.15,
+    }),
+    handle: new THREE.MeshStandardMaterial({
+        color: '#2a2a2e',
+        metalness: 0.9,
+        roughness: 0.2,
+    }),
+    handleGrip: new THREE.MeshStandardMaterial({
+        color: '#404048',
+        metalness: 0.8,
+        roughness: 0.3,
+    }),
+    feet: new THREE.MeshStandardMaterial({
+        color: '#1a1a1a',
+        metalness: 0.6,
+        roughness: 0.5,
+    }),
+    logoBadge: new THREE.MeshStandardMaterial({
+        color: '#1a1a1e',
+        metalness: 0.8,
+        roughness: 0.3,
+    }),
+};
+
 export function ServerRack({
     rack,
     selectedDeviceIds,
@@ -54,56 +103,26 @@ export function ServerRack({
     agentActivityInfo,
 }: ServerRackProps) {
     const isRackSelected = selectedRackId === rack.rack_id;
+    
+    // Door animation - opens when rack is selected
+    const doorRef = useRef<THREE.Group>(null);
+    const doorRotation = useRef(0);
+    const targetRotation = isRackSelected ? -Math.PI * 0.45 : 0; // Open 80 degrees when selected
+    
+    useFrame((_state, delta: number) => {
+        if (doorRef.current) {
+            // Smooth interpolation towards target rotation
+            const speed = 3;
+            doorRotation.current += (targetRotation - doorRotation.current) * speed * delta;
+            doorRef.current.rotation.y = doorRotation.current;
+        }
+    });
 
     const shouldShowAgentActivity = useMemo(() => {
         if (!agentActivityInfo) return false;
         const isFirstRack = rack.rack_id.includes('R1') || rack.rack_id.includes('A1');
         return isFirstRack;
     }, [agentActivityInfo, rack.rack_id]);
-
-    const materials = useMemo(
-        () => ({
-            rackFrame: new THREE.MeshStandardMaterial({ 
-                color: '#1a1a1a',
-                metalness: 0.8,
-                roughness: 0.3,
-            }),
-            rackBack: new THREE.MeshStandardMaterial({ 
-                color: '#0a0a0a',
-                metalness: 0.5,
-                roughness: 0.4,
-            }),
-            rail: new THREE.MeshStandardMaterial({ 
-                color: '#2a2a2a',
-                metalness: 0.7,
-                roughness: 0.3,
-            }),
-            glassDoor: new THREE.MeshStandardMaterial({
-                color: '#1a2030',
-                metalness: 0.1,
-                roughness: 0.05,
-                transparent: true,
-                opacity: 0.3,
-                envMapIntensity: 2,
-            }),
-            doorFrame: new THREE.MeshStandardMaterial({
-                color: '#252525',
-                metalness: 0.9,
-                roughness: 0.2,
-            }),
-            verticalLEDStrip: new THREE.MeshStandardMaterial({
-                color: '#00d4ff',
-                emissive: '#00d4ff',
-                emissiveIntensity: 2.5,
-            }),
-            topIndicator: new THREE.MeshStandardMaterial({
-                color: '#ff8800',
-                emissive: '#ff6600',
-                emissiveIntensity: 1.5,
-            }),
-        }),
-        []
-    );
 
     const rackHighlightMaterial = useMemo(() => {
         const color = rack.rack_color || '#00aaff';
@@ -115,7 +134,26 @@ export function ServerRack({
         });
     }, [rack.rack_color, isRackSelected]);
 
-    // Build slot map for 20U rack. Multi-U devices span multiple slots.
+    // Perforated door material with texture
+    const meshDoorMaterial = useMemo(() => {
+        return new THREE.MeshStandardMaterial({
+            map: getPerforatedDoorTexture(),
+            metalness: 0.6,
+            roughness: 0.4,
+            transparent: true,
+            opacity: 0.95,
+        });
+    }, []);
+
+    // Dell logo material
+    const logoMaterial = useMemo(() => {
+        return new THREE.MeshBasicMaterial({
+            map: getDellLogoBadgeTexture(),
+            transparent: true,
+        });
+    }, []);
+
+    // Build slot map for 20U rack
     const U_SLOTS = 20;
     const slots: (Device3D | null)[] = Array(U_SLOTS).fill(null);
     const sortedDevices = [...rack.devices].sort(
@@ -159,9 +197,9 @@ export function ServerRack({
 
     return (
         <group position={rack.position} rotation={rack.rotation || [0, 0, 0]}>
-            {/* Rack highlight box - Add click handler */}
+            {/* Rack highlight box for selection */}
             <mesh
-                position={[0.29, 0, 0.15]}
+                position={[0.3, 0, 0]}
                 geometry={rackGeo.rackHighlight}
                 material={rackHighlightMaterial}
                 onClick={handleRackClick}
@@ -169,29 +207,116 @@ export function ServerRack({
                 onPointerOut={() => (document.body.style.cursor = 'default')}
             />
 
-            {/* Static rack body — merged by material (7 draws vs 18) */}
+            {/* Main frame (corner posts) */}
             <mesh
                 castShadow
                 geometry={mergedRackStaticGeo.rackFrame}
-                material={materials.rackFrame}
+                material={sharedRackMaterials.frame}
             />
-            <mesh geometry={mergedRackStaticGeo.rackBack} material={materials.rackBack} />
-            <mesh geometry={mergedRackStaticGeo.doorFrame} material={materials.doorFrame} />
-            <mesh geometry={mergedRackStaticGeo.glassDoor} material={materials.glassDoor} />
-            <mesh
-                geometry={mergedRackStaticGeo.verticalLedStrip}
-                material={materials.verticalLEDStrip}
-            />
-            <mesh
-                geometry={mergedRackStaticGeo.topIndicator}
-                material={materials.topIndicator}
-            />
-            <mesh geometry={mergedRackStaticGeo.rail} material={materials.rail} />
 
-            {/* Rack name label - shown when rack is selected */}
+            {/* Back panel - fully encloses back */}
+            <mesh
+                geometry={mergedRackStaticGeo.rackBack}
+                material={sharedRackMaterials.back}
+            />
+
+            {/* Top panel - fully encloses top */}
+            <mesh
+                castShadow
+                geometry={mergedRackStaticGeo.topPanel}
+                material={sharedRackMaterials.sidePanel}
+            />
+
+            {/* Bottom panel - fully encloses bottom */}
+            <mesh
+                geometry={mergedRackStaticGeo.bottomPanel}
+                material={sharedRackMaterials.sidePanel}
+            />
+
+            {/* Side panels - fully enclose left and right */}
+            <mesh
+                geometry={mergedRackStaticGeo.sidePanels}
+                material={sharedRackMaterials.sidePanel}
+            />
+
+            {/* Bottom feet */}
+            <mesh
+                geometry={mergedRackStaticGeo.feet}
+                material={sharedRackMaterials.feet}
+            />
+
+            {/* === ANIMATED DOOR GROUP === */}
+            {/* Pivot point is at left edge of door (x = -0.01) */}
+            <group position={[-0.01, 0, 0.5]} ref={doorRef}>
+                {/* Door frame - positioned relative to pivot */}
+                <group position={[0.31, 0, 0]}>
+                    {/* Left door frame */}
+                    <mesh position={[-0.295, 0, 0]} material={sharedRackMaterials.doorFrame}>
+                        <boxGeometry args={[0.03, 1.85, 0.025]} />
+                    </mesh>
+                    {/* Right door frame */}
+                    <mesh position={[0.315, 0, 0]} material={sharedRackMaterials.doorFrame}>
+                        <boxGeometry args={[0.03, 1.85, 0.025]} />
+                    </mesh>
+                    {/* Top door frame */}
+                    <mesh position={[0.01, 0.92, 0]} material={sharedRackMaterials.doorFrame}>
+                        <boxGeometry args={[0.62, 0.03, 0.025]} />
+                    </mesh>
+                    {/* Bottom door frame */}
+                    <mesh position={[0.01, -0.92, 0]} material={sharedRackMaterials.doorFrame}>
+                        <boxGeometry args={[0.62, 0.03, 0.025]} />
+                    </mesh>
+
+                    {/* Perforated mesh door panel */}
+                    <mesh position={[0.01, 0, 0]} material={meshDoorMaterial}>
+                        <boxGeometry args={[0.56, 1.82, 0.015]} />
+                    </mesh>
+
+                    {/* Silver edge trim - vertical */}
+                    <mesh position={[-0.31, 0, 0.02]} material={sharedRackMaterials.edgeTrim}>
+                        <boxGeometry args={[0.02, 1.92, 0.02]} />
+                    </mesh>
+                    <mesh position={[0.33, 0, 0.02]} material={sharedRackMaterials.edgeTrim}>
+                        <boxGeometry args={[0.02, 1.92, 0.02]} />
+                    </mesh>
+                    {/* Silver edge trim - horizontal */}
+                    <mesh position={[0.01, 0.96, 0.02]} material={sharedRackMaterials.edgeTrim}>
+                        <boxGeometry args={[0.64, 0.02, 0.02]} />
+                    </mesh>
+                    <mesh position={[0.01, -0.96, 0.02]} material={sharedRackMaterials.edgeTrim}>
+                        <boxGeometry args={[0.64, 0.02, 0.02]} />
+                    </mesh>
+
+                    {/* Door handle */}
+                    <mesh position={[0.29, 0, 0.02]} material={sharedRackMaterials.handle}>
+                        <boxGeometry args={[0.02, 0.15, 0.025]} />
+                    </mesh>
+                    {/* Handle grip */}
+                    <mesh
+                        position={[0.305, 0, 0.035]}
+                        rotation={[Math.PI / 2, 0, 0]}
+                        geometry={rackGeo.doorHandleGrip}
+                        material={sharedRackMaterials.handleGrip}
+                    />
+
+                    {/* Dell logo badge at top */}
+                    <group position={[0.01, 0.85, 0.02]}>
+                        <mesh
+                            rotation={[Math.PI / 2, 0, 0]}
+                            geometry={rackGeo.logoBadge}
+                            material={sharedRackMaterials.logoBadge}
+                        />
+                        <mesh position={[0, 0, 0.005]} material={logoMaterial}>
+                            <planeGeometry args={[0.07, 0.07]} />
+                        </mesh>
+                    </group>
+                </group>
+            </group>
+
+            {/* Rack name label - shown when selected */}
             {isRackSelected && (
                 <Html
-                    position={[0.29, 1.02, 0.05]}
+                    position={[0.3, 1.02, 0.05]}
                     center
                     distanceFactor={8}
                     zIndexRange={[100, 0]}
@@ -247,164 +372,79 @@ export function ServerRack({
                         <style>
                             {`
                                 @keyframes cyanPulse {
-                                    0%, 100% {
-                                        box-shadow: 0 0 6px rgba(34, 211, 238, 0.4),
-                                                    0 0 12px rgba(34, 211, 238, 0.2);
-                                        border-color: rgba(34, 211, 238, 0.6);
-                                    }
-                                    50% {
-                                        box-shadow: 0 0 14px rgba(34, 211, 238, 0.8),
-                                                    0 0 28px rgba(34, 211, 238, 0.4);
-                                        border-color: rgba(34, 211, 238, 1);
-                                    }
+                                    0%, 100% { box-shadow: 0 0 6px rgba(34, 211, 238, 0.4); border-color: rgba(34, 211, 238, 0.6); }
+                                    50% { box-shadow: 0 0 14px rgba(34, 211, 238, 0.8); border-color: rgba(34, 211, 238, 1); }
                                 }
                                 @keyframes amberPulse {
-                                    0%, 100% {
-                                        box-shadow: 0 0 4px rgba(234, 179, 8, 0.4);
-                                        border-color: rgba(234, 179, 8, 0.6);
-                                    }
-                                    50% {
-                                        box-shadow: 0 0 12px rgba(234, 179, 8, 0.8),
-                                                    0 0 24px rgba(234, 179, 8, 0.4);
-                                        border-color: rgba(234, 179, 8, 1);
-                                    }
+                                    0%, 100% { box-shadow: 0 0 4px rgba(234, 179, 8, 0.4); border-color: rgba(234, 179, 8, 0.6); }
+                                    50% { box-shadow: 0 0 12px rgba(234, 179, 8, 0.8); border-color: rgba(234, 179, 8, 1); }
                                 }
-                                @keyframes dotPulse {
-                                    0%, 100% { opacity: 0.4; }
-                                    50% { opacity: 1; }
-                                }
+                                @keyframes dotPulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
                             `}
                         </style>
-                        <div
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '10px',
-                                background: 'linear-gradient(135deg, rgba(12, 12, 16, 0.95) 0%, rgba(18, 18, 24, 0.92) 100%)',
-                                backdropFilter: 'blur(16px)',
-                                borderRadius: '8px',
-                                padding: '8px 14px',
-                                minWidth: '155px',
-                                maxWidth: '220px',
-                                border: isProcessing
-                                    ? '1.5px solid rgba(34, 211, 238, 0.5)'
-                                    : isWaiting
-                                        ? '1.5px solid rgba(234, 179, 8, 0.5)'
-                                        : '1px solid rgba(63, 63, 70, 0.4)',
-                                animation: isProcessing
-                                    ? 'cyanPulse 1.5s ease-in-out infinite'
-                                    : isWaiting
-                                        ? 'amberPulse 1.5s ease-in-out infinite'
-                                        : 'none',
-                                boxShadow: '0 3px 12px rgba(0, 0, 0, 0.5)',
-                                pointerEvents: 'none',
-                            }}
-                        >
-                            {/* Left: agent icon + status */}
-                            <div style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                flexShrink: 0,
-                                gap: '2px',
-                            }}>
-                                <svg
-                                    viewBox="0 0 24 24"
-                                    width="22"
-                                    height="22"
-                                    fill="none"
-                                    stroke={
-                                        isProcessing ? '#22d3ee'
-                                            : isWaiting ? '#eab308'
-                                            : '#6b7280'
-                                    }
-                                    strokeWidth="1.8"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                >
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            background: 'linear-gradient(135deg, rgba(12, 12, 16, 0.95), rgba(18, 18, 24, 0.92))',
+                            backdropFilter: 'blur(16px)',
+                            borderRadius: '8px',
+                            padding: '8px 14px',
+                            minWidth: '155px',
+                            maxWidth: '220px',
+                            border: isProcessing ? '1.5px solid rgba(34, 211, 238, 0.5)'
+                                : isWaiting ? '1.5px solid rgba(234, 179, 8, 0.5)'
+                                : '1px solid rgba(63, 63, 70, 0.4)',
+                            animation: isProcessing ? 'cyanPulse 1.5s ease-in-out infinite'
+                                : isWaiting ? 'amberPulse 1.5s ease-in-out infinite' : 'none',
+                            boxShadow: '0 3px 12px rgba(0, 0, 0, 0.5)',
+                            pointerEvents: 'none',
+                        }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none"
+                                    stroke={isProcessing ? '#22d3ee' : isWaiting ? '#eab308' : '#6b7280'}
+                                    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                                     <rect x="3" y="11" width="18" height="10" rx="2" />
                                     <circle cx="12" cy="5" r="4" />
-                                    <path d="M8 16h.01M16 16h.01" />
-                                    <path d="M10 19h4" />
+                                    <path d="M8 16h.01M16 16h.01M10 19h4" />
                                 </svg>
-                                <span
-                                    style={{
-                                        fontFamily: 'Inter',
-                                        fontSize: '7px',
-                                        fontWeight: 700,
-                                        color: isProcessing ? '#22d3ee'
-                                            : isWaiting ? '#fbbf24'
-                                            : '#6b7280',
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '0.04em',
-                                    }}
-                                >
+                                <span style={{
+                                    fontFamily: 'Inter', fontSize: '7px', fontWeight: 700,
+                                    color: isProcessing ? '#22d3ee' : isWaiting ? '#fbbf24' : '#6b7280',
+                                    textTransform: 'uppercase',
+                                }}>
                                     {isActive ? (
                                         <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                            <span
-                                                style={{
-                                                    width: '5px',
-                                                    height: '5px',
-                                                    borderRadius: '50%',
-                                                    background: isProcessing ? '#22d3ee' : '#eab308',
-                                                    animation: 'dotPulse 1s ease-in-out infinite',
-                                                }}
-                                            />
+                                            <span style={{
+                                                width: '5px', height: '5px', borderRadius: '50%',
+                                                background: isProcessing ? '#22d3ee' : '#eab308',
+                                                animation: 'dotPulse 1s ease-in-out infinite',
+                                            }} />
                                             {isWaiting ? 'AWAIT' : 'ACTIVE'}
                                         </span>
                                     ) : 'IDLE'}
                                 </span>
                             </div>
-                            {/* Right: agent details */}
-                            <div style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: '2px',
-                                overflow: 'hidden',
-                            }}>
-                                <span
-                                    style={{
-                                        fontFamily: 'Inter',
-                                        fontSize: isActive ? '10px' : '11px',
-                                        fontWeight: 600,
-                                        color: isActive ? '#e5e7eb' : '#6b7280',
-                                        letterSpacing: '0.02em',
-                                        lineHeight: 1.2,
-                                        textTransform: 'capitalize',
-                                        whiteSpace: 'nowrap',
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                    }}
-                                >
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', overflow: 'hidden' }}>
+                                <span style={{
+                                    fontFamily: 'Inter', fontSize: isActive ? '10px' : '11px', fontWeight: 600,
+                                    color: isActive ? '#e5e7eb' : '#6b7280', textTransform: 'capitalize',
+                                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                }}>
                                     {displayName || 'No active agent'}
                                 </span>
-                                <span
-                                    style={{
-                                        fontFamily: "'JetBrains Mono', monospace",
-                                        fontSize: '7px',
-                                        fontWeight: 500,
-                                        color: '#9ca3af',
-                                        letterSpacing: '0.02em',
-                                        whiteSpace: 'nowrap',
-                                    }}
-                                >
+                                <span style={{
+                                    fontFamily: "'JetBrains Mono', monospace", fontSize: '7px',
+                                    color: '#9ca3af', whiteSpace: 'nowrap',
+                                }}>
                                     {agentActivityInfo.deviceName} / {agentActivityInfo.bmcIp}
                                 </span>
                                 {truncatedQuery && (
-                                    <span
-                                        style={{
-                                            fontFamily: 'Inter',
-                                            fontSize: '7px',
-                                            fontWeight: 400,
-                                            color: '#6b7280',
-                                            lineHeight: 1.3,
-                                            overflow: 'hidden',
-                                            display: '-webkit-box',
-                                            WebkitLineClamp: 2,
-                                            WebkitBoxOrient: 'vertical',
-                                        }}
-                                    >
+                                    <span style={{
+                                        fontFamily: 'Inter', fontSize: '7px', color: '#6b7280',
+                                        overflow: 'hidden', display: '-webkit-box',
+                                        WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                                    }}>
                                         {truncatedQuery}
                                     </span>
                                 )}
@@ -413,24 +453,6 @@ export function ServerRack({
                     </Html>
                 );
             })()}
-
-            {/*
-             * Dell EMC grill panel — sits at the very top of the rack front face.
-             *
-             * scale = 0.58 / 12.0 ≈ 0.048
-             * At that scale, DEPTH=1.5 means the frame strips span
-             *   ±(1.52/2)×0.048 = ±0.036 world units around the group origin.
-             *
-             * z = 0.44  — pushed 0.10 in front of the bezel plane (0.34) so
-             *             the entire assembly (frame back = 0.404, hex front = 0.512)
-             *             sits clearly in front of the rack face, fully visible.
-             */}
-            <group
-                position={[0.29, 0.808, 0.44]}
-                scale={0.048}
-            >
-                <DellGrill />
-            </group>
 
             {/* Server slots */}
             {slots.map((device, _slotIndex) => {
@@ -455,25 +477,15 @@ export function ServerRack({
                 const meshHeight = 0.052 * heightU;
 
                 const isSelected = selectedDeviceIds.has(device.device_id);
-                const chassisMaterial = isSelected
-                    ? materials.serverChassisSelected
-                    : device.health_status === 'critical'
-                        ? materials.serverChassisCritical
-                        : materials.serverChassis;
 
                 return (
                     <group
                         key={device.device_id}
-                        position={[0.29, yPos, 0.15]}
+                        position={[0.3, yPos, 0.12]}
                         onClick={(e) => handleDeviceClick(e, device)}
-                        onPointerOver={() =>
-                            (document.body.style.cursor = 'pointer')
-                        }
-                        onPointerOut={() =>
-                            (document.body.style.cursor = 'default')
-                        }
+                        onPointerOver={() => (document.body.style.cursor = 'pointer')}
+                        onPointerOut={() => (document.body.style.cursor = 'default')}
                     >
-                        {/* Dell Server - realistic server rendering */}
                         <DellServer
                             height={meshHeight}
                             isSelected={isSelected}
@@ -481,10 +493,9 @@ export function ServerRack({
                             status={device.status}
                         />
 
-                        {/* Device hostname label - clickable when rack is selected */}
                         {isRackSelected && showDeviceLabels && (
                             <Html
-                                position={[0, 0, 0.38]}
+                                position={[0, 0, 0.4]}
                                 center
                                 distanceFactor={8}
                                 zIndexRange={[100, 0]}
@@ -492,65 +503,31 @@ export function ServerRack({
                                 <div
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        if (onDeviceClick) {
-                                            onDeviceClick(device);
-                                        }
+                                        onDeviceClick?.(device);
                                     }}
                                     style={{
-                                        background: isSelected
-                                            ? '#2563eb'
-                                            : device.health_status === 'critical'
-                                                ? '#1c1617'
-                                                : '#252528',
+                                        background: isSelected ? '#2563eb'
+                                            : device.health_status === 'critical' ? '#1c1617' : '#252528',
                                         color: device.health_status === 'critical' ? '#f87171' : '#fff',
                                         padding: '2px 7px',
                                         borderRadius: '2px',
                                         fontSize: '8px',
                                         fontWeight: 600,
                                         fontFamily: "'JetBrains Mono', monospace",
-                                        letterSpacing: '0.02em',
-                                        lineHeight: 1.3,
                                         whiteSpace: 'nowrap',
                                         cursor: 'pointer',
-                                        border: isSelected
-                                            ? '1px solid #3b82f6'
-                                            : device.health_status === 'critical'
-                                                ? '1px solid #dc2626'
-                                                : '1px solid #3f3f46',
-                                        transition: 'all 0.15s ease',
+                                        border: isSelected ? '1px solid #3b82f6'
+                                            : device.health_status === 'critical' ? '1px solid #dc2626' : '1px solid #3f3f46',
                                         boxShadow: device.health_status === 'critical'
-                                            ? '0 0 12px rgba(220, 38, 38, 0.4)'
-                                            : '0 1px 4px rgba(0,0,0,0.4)',
+                                            ? '0 0 12px rgba(220, 38, 38, 0.4)' : '0 1px 4px rgba(0,0,0,0.4)',
                                         display: 'flex',
                                         flexDirection: 'column',
                                         alignItems: 'center',
-                                        gap: device.service_tag ? '1px' : '0',
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = isSelected
-                                            ? '#1d4ed8'
-                                            : device.health_status === 'critical'
-                                                ? '#271a1b'
-                                                : '#333338';
-                                        e.currentTarget.style.transform = 'scale(1.03)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = isSelected
-                                            ? '#2563eb'
-                                            : device.health_status === 'critical'
-                                                ? '#1c1617'
-                                                : '#252528';
-                                        e.currentTarget.style.transform = 'scale(1)';
                                     }}
                                 >
                                     <span>{device.hostname}</span>
                                     {device.service_tag && (
-                                        <span style={{
-                                            fontSize: '6.5px',
-                                            fontWeight: 400,
-                                            opacity: 0.65,
-                                            letterSpacing: '0.03em',
-                                        }}>
+                                        <span style={{ fontSize: '6.5px', opacity: 0.65 }}>
                                             {device.service_tag}
                                         </span>
                                     )}

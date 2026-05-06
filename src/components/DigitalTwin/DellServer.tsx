@@ -1,13 +1,8 @@
 /**
- * DellServer.tsx - Realistic Dell PowerEdge 1U rack server
+ * DellServer.tsx - Dell EMC PowerEdge rack server with full-front honeycomb grill
  * 
- * Based on Dell PowerEdge R650/R660 series servers with:
- * - Metallic silver/gray chassis
- * - Drive bays on left side with latches
- * - Honeycomb ventilation grills on right
- * - Dell logo in center (gold/bronze)
- * - Blue power indicator
- * - Metal handles
+ * OPTIMIZED: Uses texture-based honeycomb pattern instead of instanced geometry
+ * to dramatically reduce triangle count while maintaining visual quality.
  */
 
 import { useMemo } from 'react';
@@ -20,310 +15,303 @@ interface DellServerProps {
   status?: 'online' | 'offline' | 'degraded';
 }
 
+// Shared across all DellServer instances - created once
+let sharedGrillTexture: THREE.CanvasTexture | null = null;
+let sharedLogoTexture: THREE.CanvasTexture | null = null;
+
+function getSharedGrillTexture(): THREE.CanvasTexture {
+  if (sharedGrillTexture) return sharedGrillTexture;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+
+  // Dark background
+  ctx.fillStyle = '#1a1a1e';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Draw honeycomb pattern
+  const hexRadius = 8;
+  const hexHeight = hexRadius * Math.sqrt(3);
+  const colStep = hexRadius * 1.5;
+  const rowStep = hexHeight;
+
+  ctx.strokeStyle = '#2a2a30';
+  ctx.lineWidth = 2;
+  ctx.fillStyle = '#0a0a0c';
+
+  for (let col = -1; col < canvas.width / colStep + 2; col++) {
+    for (let row = -1; row < canvas.height / rowStep + 2; row++) {
+      const x = col * colStep;
+      const y = row * rowStep + (col % 2 === 1 ? rowStep / 2 : 0);
+      
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = (i / 6) * Math.PI * 2 + Math.PI / 6;
+        const px = x + hexRadius * Math.cos(angle);
+        const py = y + hexRadius * Math.sin(angle);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  sharedGrillTexture = new THREE.CanvasTexture(canvas);
+  sharedGrillTexture.wrapS = THREE.RepeatWrapping;
+  sharedGrillTexture.wrapT = THREE.RepeatWrapping;
+  sharedGrillTexture.repeat.set(4, 1);
+  sharedGrillTexture.colorSpace = THREE.SRGBColorSpace;
+  sharedGrillTexture.needsUpdate = true;
+  return sharedGrillTexture;
+}
+
+function getSharedLogoTexture(): THREE.CanvasTexture {
+  if (sharedLogoTexture) return sharedLogoTexture;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const fontSize = 36;
+  ctx.font = `900 ${fontSize}px "Arial Narrow", Arial, sans-serif`;
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+  ctx.shadowBlur = 4;
+
+  const cy = canvas.height / 2;
+  const dellWidth = ctx.measureText('DELL').width;
+  const emcWidth = ctx.measureText('EMC').width;
+  const gap = fontSize * 0.2;
+  const totalWidth = dellWidth + gap + emcWidth;
+  let cx = (canvas.width - totalWidth) / 2;
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('DELL', cx, cy);
+  cx += dellWidth + gap;
+  
+  ctx.fillStyle = '#909098';
+  ctx.fillText('EMC', cx, cy);
+
+  sharedLogoTexture = new THREE.CanvasTexture(canvas);
+  sharedLogoTexture.colorSpace = THREE.SRGBColorSpace;
+  sharedLogoTexture.premultiplyAlpha = true;
+  sharedLogoTexture.needsUpdate = true;
+  return sharedLogoTexture;
+}
+
+// Shared materials - created once, reused by all instances
+const sharedMaterials = {
+  chassis: new THREE.MeshStandardMaterial({
+    color: '#8a8a90',
+    metalness: 0.85,
+    roughness: 0.25,
+  }),
+  chassisSelected: new THREE.MeshStandardMaterial({
+    color: '#00ff88',
+    emissive: '#00ff88',
+    emissiveIntensity: 0.3,
+    metalness: 0.7,
+    roughness: 0.3,
+  }),
+  chassisCritical: new THREE.MeshStandardMaterial({
+    color: '#5a4a4a',
+    emissive: '#cc3333',
+    emissiveIntensity: 0.2,
+    metalness: 0.7,
+    roughness: 0.35,
+  }),
+  frameBorder: new THREE.MeshStandardMaterial({
+    color: '#161618',
+    metalness: 0.9,
+    roughness: 0.44,
+  }),
+  mountingFlange: new THREE.MeshStandardMaterial({
+    color: '#161618',
+    metalness: 0.95,
+    roughness: 0.44,
+  }),
+  lockCylinder: new THREE.MeshStandardMaterial({
+    color: '#3a3a42',
+    metalness: 0.94,
+    roughness: 0.38,
+  }),
+  blueLED: new THREE.MeshStandardMaterial({
+    color: '#00aaff',
+    emissive: '#00aaff',
+    emissiveIntensity: 3.0,
+  }),
+  greenLED: new THREE.MeshStandardMaterial({
+    color: '#00ff44',
+    emissive: '#00ff44',
+    emissiveIntensity: 2.5,
+  }),
+  yellowLED: new THREE.MeshStandardMaterial({
+    color: '#ffcc00',
+    emissive: '#ffcc00',
+    emissiveIntensity: 2.5,
+  }),
+  redLED: new THREE.MeshStandardMaterial({
+    color: '#ff3300',
+    emissive: '#ff3300',
+    emissiveIntensity: 3.0,
+  }),
+  offLED: new THREE.MeshStandardMaterial({
+    color: '#333',
+    emissive: '#111',
+    emissiveIntensity: 0.1,
+  }),
+  edgeAccent: new THREE.MeshStandardMaterial({
+    color: '#606068',
+    metalness: 0.9,
+    roughness: 0.1,
+  }),
+};
+
+// Shared geometries - created once
+const sharedGeometries = {
+  ledBox: new THREE.BoxGeometry(0.012, 0.008, 0.004),
+  lockCylinder: new THREE.CylinderGeometry(0.006, 0.006, 0.008, 8),
+  lockSlot: new THREE.BoxGeometry(0.006, 0.002, 0.002),
+  topStrip: new THREE.BoxGeometry(0.06, 0.003, 0.003),
+};
+
 export function DellServer({
   height = 0.052,
   isSelected = false,
   healthStatus = 'ok',
   status = 'online',
 }: DellServerProps) {
-  const materials = useMemo(() => ({
-    chassis: new THREE.MeshStandardMaterial({
-      color: '#8a8a90',
-      metalness: 0.85,
-      roughness: 0.25,
-    }),
-    chassisSelected: new THREE.MeshStandardMaterial({
-      color: '#00ff88',
-      emissive: '#00ff88',
-      emissiveIntensity: 0.3,
-      metalness: 0.7,
-      roughness: 0.3,
-    }),
-    chassisCritical: new THREE.MeshStandardMaterial({
-      color: '#5a4a4a',
-      emissive: '#cc3333',
-      emissiveIntensity: 0.2,
-      metalness: 0.7,
-      roughness: 0.35,
-    }),
-    bezel: new THREE.MeshStandardMaterial({
-      color: '#2a2a2e',
-      metalness: 0.6,
-      roughness: 0.35,
-    }),
-    driveBay: new THREE.MeshStandardMaterial({
-      color: '#1a1a1e',
-      metalness: 0.5,
-      roughness: 0.4,
-    }),
-    driveLatch: new THREE.MeshStandardMaterial({
-      color: '#3a3a40',
-      metalness: 0.8,
-      roughness: 0.2,
-    }),
-    driveLatchButton: new THREE.MeshStandardMaterial({
-      color: '#555560',
-      metalness: 0.9,
-      roughness: 0.15,
-    }),
-    grillFrame: new THREE.MeshStandardMaterial({
-      color: '#252528',
-      metalness: 0.7,
-      roughness: 0.3,
-    }),
-    grillMesh: new THREE.MeshStandardMaterial({
-      color: '#1a1a1e',
-      metalness: 0.6,
-      roughness: 0.4,
-    }),
-    handle: new THREE.MeshStandardMaterial({
-      color: '#4a4a50',
-      metalness: 0.85,
-      roughness: 0.2,
-    }),
-    handleGrip: new THREE.MeshStandardMaterial({
-      color: '#303035',
-      metalness: 0.4,
-      roughness: 0.6,
-    }),
-    dellLogo: new THREE.MeshStandardMaterial({
-      color: '#b8860b',
-      metalness: 0.95,
-      roughness: 0.1,
-      emissive: '#8b6508',
-      emissiveIntensity: 0.15,
-    }),
-    blueLED: new THREE.MeshStandardMaterial({
-      color: '#0088ff',
-      emissive: '#0088ff',
-      emissiveIntensity: 2.5,
-    }),
-    greenLED: new THREE.MeshStandardMaterial({
-      color: '#00ff44',
-      emissive: '#00ff44',
-      emissiveIntensity: 2.0,
-    }),
-    yellowLED: new THREE.MeshStandardMaterial({
-      color: '#ffaa00',
-      emissive: '#ffaa00',
-      emissiveIntensity: 1.8,
-    }),
-    redLED: new THREE.MeshStandardMaterial({
-      color: '#ff2200',
-      emissive: '#ff2200',
-      emissiveIntensity: 2.0,
-    }),
-    offLED: new THREE.MeshStandardMaterial({
-      color: '#222',
-      emissive: '#111',
-      emissiveIntensity: 0.05,
-    }),
-    edgeAccent: new THREE.MeshStandardMaterial({
-      color: '#606068',
-      metalness: 0.9,
-      roughness: 0.1,
-    }),
-    ventSlot: new THREE.MeshStandardMaterial({
-      color: '#0a0a0c',
-      metalness: 0.3,
-      roughness: 0.7,
-    }),
-  }), []);
-
   const chassisMaterial = isSelected 
-    ? materials.chassisSelected 
+    ? sharedMaterials.chassisSelected 
     : healthStatus === 'critical' 
-      ? materials.chassisCritical 
-      : materials.chassis;
+      ? sharedMaterials.chassisCritical 
+      : sharedMaterials.chassis;
 
   const statusLED = isSelected 
-    ? materials.greenLED
+    ? sharedMaterials.greenLED
     : healthStatus === 'critical' 
-      ? materials.redLED 
+      ? sharedMaterials.redLED 
       : healthStatus === 'warning'
-        ? materials.yellowLED
+        ? sharedMaterials.yellowLED
         : status === 'online'
-          ? materials.greenLED
-          : materials.offLED;
+          ? sharedMaterials.greenLED
+          : sharedMaterials.offLED;
 
-  const powerLED = status === 'online' ? materials.blueLED : materials.offLED;
+  const powerLED = status === 'online' ? sharedMaterials.blueLED : sharedMaterials.offLED;
+  const activityLED = status === 'online' ? sharedMaterials.yellowLED : sharedMaterials.offLED;
 
   const serverWidth = 0.52;
   const serverDepth = 0.68;
-  const bezelDepth = 0.012;
   const bezelZ = 0.34;
+  const frontZ = bezelZ + 0.015;
+
+  const grillWidth = serverWidth - 0.02;
+  const grillHeight = height * 0.9;
+  const borderWidth = 0.006;
+
+  // Texture-based grill material (shared texture, unique material for proper disposal)
+  const grillMaterial = useMemo(() => {
+    return new THREE.MeshStandardMaterial({
+      map: getSharedGrillTexture(),
+      metalness: 0.7,
+      roughness: 0.5,
+    });
+  }, []);
+
+  const logoMaterial = useMemo(() => {
+    return new THREE.MeshBasicMaterial({
+      map: getSharedLogoTexture(),
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+    });
+  }, []);
+
+  // Memoized geometries that depend on height
+  const chassisGeo = useMemo(() => 
+    new THREE.BoxGeometry(serverWidth, height * 1.1, serverDepth), 
+    [height]
+  );
+  
+  const grillGeo = useMemo(() => 
+    new THREE.BoxGeometry(grillWidth, grillHeight, 0.006), 
+    [grillWidth, grillHeight]
+  );
+
+  const borderVerticalGeo = useMemo(() => 
+    new THREE.BoxGeometry(borderWidth, grillHeight, 0.01), 
+    [grillHeight]
+  );
+
+  const borderHorizontalGeo = useMemo(() => 
+    new THREE.BoxGeometry(grillWidth, borderWidth, 0.01), 
+    [grillWidth]
+  );
+
+  const flangeGeo = useMemo(() => 
+    new THREE.BoxGeometry(0.024, grillHeight + 0.006, 0.01), 
+    [grillHeight]
+  );
 
   return (
     <group>
       {/* Main chassis body */}
-      <mesh
-        castShadow
-        material={chassisMaterial}
-      >
-        <boxGeometry args={[serverWidth, height * 1.1, serverDepth]} />
+      <mesh castShadow geometry={chassisGeo} material={chassisMaterial} />
+
+      {/* === FULL-FRONT HONEYCOMB GRILL PANEL (texture-based) === */}
+      <group position={[0, 0, bezelZ]}>
+        {/* Grill panel with honeycomb texture */}
+        <mesh position={[0, 0, 0.003]} geometry={grillGeo} material={grillMaterial} />
+
+        {/* Frame borders */}
+        <mesh position={[-(grillWidth / 2 - borderWidth / 2), 0, 0.005]} geometry={borderVerticalGeo} material={sharedMaterials.frameBorder} />
+        <mesh position={[(grillWidth / 2 - borderWidth / 2), 0, 0.005]} geometry={borderVerticalGeo} material={sharedMaterials.frameBorder} />
+        <mesh position={[0, (grillHeight / 2 - borderWidth / 2), 0.005]} geometry={borderHorizontalGeo} material={sharedMaterials.frameBorder} />
+        <mesh position={[0, -(grillHeight / 2 - borderWidth / 2), 0.005]} geometry={borderHorizontalGeo} material={sharedMaterials.frameBorder} />
+
+        {/* DELL EMC Logo */}
+        <mesh position={[0.003, 0, 0.015]} material={logoMaterial} renderOrder={20}>
+          <planeGeometry args={[0.1, 0.025]} />
+        </mesh>
+      </group>
+
+      {/* === SIDE MOUNTING FLANGES === */}
+      <mesh position={[-(serverWidth / 2 + 0.012), 0, bezelZ + 0.002]} geometry={flangeGeo} material={sharedMaterials.mountingFlange} />
+      <mesh position={[(serverWidth / 2 + 0.012), 0, bezelZ + 0.002]} geometry={flangeGeo} material={sharedMaterials.mountingFlange} />
+
+      {/* === LEFT SIDE LEDs === */}
+      <mesh position={[-(serverWidth / 2 + 0.012), height * 0.18, frontZ]} geometry={sharedGeometries.ledBox} material={powerLED} />
+      <mesh position={[-(serverWidth / 2 + 0.012), -height * 0.18, frontZ]} geometry={sharedGeometries.ledBox} material={sharedMaterials.blueLED} />
+
+      {/* === RIGHT SIDE LEDs === */}
+      <mesh position={[(serverWidth / 2 + 0.012), height * 0.18, frontZ]} geometry={sharedGeometries.ledBox} material={statusLED} />
+      <mesh position={[(serverWidth / 2 + 0.012), -height * 0.18, frontZ]} geometry={sharedGeometries.ledBox} material={activityLED} />
+
+      {/* === LOCK CYLINDER === */}
+      <group position={[(grillWidth / 2 - 0.025), -(grillHeight / 2 - 0.012), frontZ]}>
+        <mesh rotation={[Math.PI / 2, 0, 0]} geometry={sharedGeometries.lockCylinder} material={sharedMaterials.lockCylinder} />
+        <mesh position={[0, 0, 0.005]} geometry={sharedGeometries.lockSlot} material={sharedMaterials.frameBorder} />
+      </group>
+
+      {/* === TOP STATUS STRIP === */}
+      <mesh position={[0, height * 0.56, frontZ - 0.003]} geometry={sharedGeometries.topStrip} material={statusLED} />
+
+      {/* === FRONT EDGE ACCENTS === */}
+      <mesh position={[0, height * 0.555, bezelZ + 0.008]}>
+        <boxGeometry args={[serverWidth + 0.05, 0.003, 0.003]} />
+        <primitive object={sharedMaterials.edgeAccent} attach="material" />
       </mesh>
-
-      {/* Front bezel - dark panel */}
-      <mesh position={[0, 0, bezelZ]} material={materials.bezel}>
-        <boxGeometry args={[serverWidth + 0.02, height * 1.15, bezelDepth]} />
-      </mesh>
-
-      {/* Top edge accent */}
-      <mesh position={[0, height * 0.56, bezelZ + 0.003]} material={materials.edgeAccent}>
-        <boxGeometry args={[serverWidth + 0.03, 0.004, 0.008]} />
-      </mesh>
-
-      {/* Bottom edge accent */}
-      <mesh position={[0, -height * 0.56, bezelZ + 0.003]} material={materials.edgeAccent}>
-        <boxGeometry args={[serverWidth + 0.03, 0.004, 0.008]} />
-      </mesh>
-
-      {/* === LEFT SECTION: Drive Bays === */}
-      <group position={[-0.14, 0, bezelZ]}>
-        {/* Drive bay background */}
-        <mesh position={[0, 0, 0.002]} material={materials.driveBay}>
-          <boxGeometry args={[0.22, height * 0.95, 0.008]} />
-        </mesh>
-
-        {/* Individual drive slots (4 bays for 1U) */}
-        {[-0.075, -0.025, 0.025, 0.075].map((xOffset, i) => (
-          <group key={i} position={[xOffset, 0, 0.008]}>
-            {/* Drive carrier frame */}
-            <mesh material={materials.driveLatch}>
-              <boxGeometry args={[0.042, height * 0.8, 0.006]} />
-            </mesh>
-            
-            {/* Drive slot opening (dark) */}
-            <mesh position={[0, 0, 0.002]} material={materials.ventSlot}>
-              <boxGeometry args={[0.036, height * 0.6, 0.003]} />
-            </mesh>
-            
-            {/* Latch button */}
-            <mesh position={[0, height * 0.3, 0.004]} material={materials.driveLatchButton}>
-              <boxGeometry args={[0.018, 0.008, 0.004]} />
-            </mesh>
-            
-            {/* Drive activity LED */}
-            <mesh position={[0, -height * 0.32, 0.004]} material={i === 0 ? statusLED : materials.greenLED}>
-              <boxGeometry args={[0.006, 0.006, 0.003]} />
-            </mesh>
-          </group>
-        ))}
-      </group>
-
-      {/* === CENTER: Dell Logo === */}
-      <group position={[0.02, 0, bezelZ + 0.008]}>
-        {/* Logo background plate */}
-        <mesh material={materials.bezel}>
-          <boxGeometry args={[0.08, height * 0.5, 0.003]} />
-        </mesh>
-        
-        {/* DELL text - simplified geometric representation */}
-        <group position={[0, 0, 0.003]}>
-          {/* D */}
-          <mesh position={[-0.024, 0, 0]} material={materials.dellLogo}>
-            <boxGeometry args={[0.012, height * 0.32, 0.002]} />
-          </mesh>
-          {/* E */}
-          <mesh position={[-0.008, 0, 0]} material={materials.dellLogo}>
-            <boxGeometry args={[0.01, height * 0.32, 0.002]} />
-          </mesh>
-          {/* L */}
-          <mesh position={[0.006, 0, 0]} material={materials.dellLogo}>
-            <boxGeometry args={[0.008, height * 0.32, 0.002]} />
-          </mesh>
-          {/* L */}
-          <mesh position={[0.018, 0, 0]} material={materials.dellLogo}>
-            <boxGeometry args={[0.008, height * 0.32, 0.002]} />
-          </mesh>
-        </group>
-      </group>
-
-      {/* === RIGHT SECTION: Ventilation Grills === */}
-      <group position={[0.16, 0, bezelZ]}>
-        {/* Grill frame */}
-        <mesh position={[0, 0, 0.002]} material={materials.grillFrame}>
-          <boxGeometry args={[0.16, height * 0.95, 0.008]} />
-        </mesh>
-
-        {/* Honeycomb pattern - simplified hexagonal grid */}
-        {[[-0.055, 0.012], [-0.025, -0.006], [0.005, 0.012], [0.035, -0.006], [0.065, 0.012],
-          [-0.04, 0.006], [-0.01, 0.018], [0.02, 0.006], [0.05, 0.018],
-          [-0.055, -0.012], [-0.025, 0.006], [0.005, -0.012], [0.035, 0.006], [0.065, -0.012],
-        ].map(([x, y], i) => (
-          <mesh key={i} position={[x, y * height * 3, 0.007]} material={materials.ventSlot}>
-            <cylinderGeometry args={[0.012, 0.012, 0.004, 6]} />
-          </mesh>
-        ))}
-
-        {/* Additional vent slots */}
-        <mesh position={[0, 0, 0.008]} material={materials.grillMesh}>
-          <boxGeometry args={[0.14, height * 0.75, 0.003]} />
-        </mesh>
-      </group>
-
-      {/* === FAR LEFT: Power/ID Button === */}
-      <group position={[-0.245, 0, bezelZ + 0.005]}>
-        {/* Button housing */}
-        <mesh material={materials.handleGrip}>
-          <boxGeometry args={[0.02, height * 0.4, 0.008]} />
-        </mesh>
-        
-        {/* Power LED indicator */}
-        <mesh position={[0, 0, 0.005]} material={powerLED}>
-          <cylinderGeometry args={[0.004, 0.004, 0.003, 8]} />
-        </mesh>
-      </group>
-
-      {/* === HANDLES === */}
-      {/* Left handle */}
-      <group position={[-0.268, 0, bezelZ]}>
-        {/* Handle bracket */}
-        <mesh material={materials.handle}>
-          <boxGeometry args={[0.018, height * 0.9, 0.015]} />
-        </mesh>
-        {/* Grip texture */}
-        <mesh position={[-0.002, 0, 0.008]} material={materials.handleGrip}>
-          <boxGeometry args={[0.012, height * 0.6, 0.008]} />
-        </mesh>
-      </group>
-
-      {/* Right handle */}
-      <group position={[0.268, 0, bezelZ]}>
-        {/* Handle bracket */}
-        <mesh material={materials.handle}>
-          <boxGeometry args={[0.018, height * 0.9, 0.015]} />
-        </mesh>
-        {/* Grip texture */}
-        <mesh position={[0.002, 0, 0.008]} material={materials.handleGrip}>
-          <boxGeometry args={[0.012, height * 0.6, 0.008]} />
-        </mesh>
-      </group>
-
-      {/* === STATUS INDICATORS === */}
-      {/* Status LED row - right side */}
-      <group position={[0.22, height * 0.35, bezelZ + 0.007]}>
-        <mesh material={statusLED}>
-          <boxGeometry args={[0.02, 0.008, 0.003]} />
-        </mesh>
-      </group>
-
-      {/* Activity LED */}
-      <group position={[0.22, -height * 0.35, bezelZ + 0.007]}>
-        <mesh material={status === 'online' ? materials.greenLED : materials.offLED}>
-          <boxGeometry args={[0.02, 0.008, 0.003]} />
-        </mesh>
-      </group>
-
-      {/* === SIDE RAILS === */}
-      {/* Left rail */}
-      <mesh position={[-0.27, 0, 0]} material={materials.edgeAccent}>
-        <boxGeometry args={[0.008, height * 1.05, serverDepth * 0.95]} />
-      </mesh>
-
-      {/* Right rail */}
-      <mesh position={[0.27, 0, 0]} material={materials.edgeAccent}>
-        <boxGeometry args={[0.008, height * 1.05, serverDepth * 0.95]} />
+      <mesh position={[0, -height * 0.555, bezelZ + 0.008]}>
+        <boxGeometry args={[serverWidth + 0.05, 0.003, 0.003]} />
+        <primitive object={sharedMaterials.edgeAccent} attach="material" />
       </mesh>
     </group>
   );
